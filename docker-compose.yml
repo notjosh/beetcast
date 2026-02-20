@@ -1,0 +1,26 @@
+services:
+  beetcast:
+    image: ghcr.io/notjosh/beetcast:latest
+    container_name: beetcast
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./podcasts.json:/app/podcasts.json:ro
+    environment:
+      - BASE_URL=http://localhost:3000
+      - ADMIN_ENABLED=true
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD=changeme
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r => { if (!r.ok) throw r.status })",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3

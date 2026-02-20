@@ -1,0 +1,7 @@
+[tools]
+node = "24"
+hk = "latest"
+pkl = "latest"
+
+[tools.pnpm]
+version = "latest"

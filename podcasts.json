@@ -1,0 +1,14 @@
+{
+  "omsbpodcast": {
+    "bandcampUrl": "https://omsbpodcast.bandcamp.com",
+    "title": "(((OPENmind/SATURATEDbrain)))",
+    "author": "OPENmind/SATURATEDbrain",
+    "description": "A podcast about music, art, and culture.",
+    "language": "en",
+    "category": "Music",
+    "subcategory": "Music Commentary",
+    "explicit": false,
+    "bitrate": 96,
+    "channels": 1
+  }
+}
