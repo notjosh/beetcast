@@ -1,7 +1,7 @@
 import type { PodcastConfig } from "../schemas/config.js";
 import type { EpisodeMeta } from "../schemas/episode.js";
 
-import { generateFeed } from "./feed.js";
+import { generateFeed, uuidv5 } from "./feed.js";
 
 vi.mock("./audio.js", () => ({
   getEpisodeFileSize: vi.fn().mockResolvedValue(12345),
@@ -66,6 +66,25 @@ const episodes: EpisodeMeta[] = [
     // no episodeNumber
   }),
 ];
+
+describe("uuidv5", () => {
+  it("produces a valid v5 UUID", () => {
+    const id = uuidv5("https://example.com/feed.xml");
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("is deterministic", () => {
+    const a = uuidv5("https://example.com/feed.xml");
+    const b = uuidv5("https://example.com/feed.xml");
+    expect(a).toBe(b);
+  });
+
+  it("produces different UUIDs for different inputs", () => {
+    const a = uuidv5("https://example.com/a");
+    const b = uuidv5("https://example.com/b");
+    expect(a).not.toBe(b);
+  });
+});
 
 describe("generateFeed", () => {
   it("excludes skipped episodes", async () => {
