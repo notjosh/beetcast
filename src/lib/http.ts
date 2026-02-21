@@ -27,7 +27,9 @@ export async function downloadToFile(url: string, destPath: string): Promise<voi
     await pipeline(readStream, writeStream);
     await rename(tmpPath, destPath);
   } catch (err) {
-    await unlink(tmpPath).catch(() => {});
+    await unlink(tmpPath).catch(() => {
+      /* noop */
+    });
     throw err;
   }
 }
@@ -42,14 +44,16 @@ export async function downloadToFileWithProgress(
     const readStream = http.stream(url);
     if (onProgress) {
       readStream.on("downloadProgress", (p) => {
-        onProgress(p.transferred, p.total || undefined);
+        onProgress(p.transferred, p.total ?? undefined);
       });
     }
     const writeStream = createWriteStream(tmpPath);
     await pipeline(readStream, writeStream);
     await rename(tmpPath, destPath);
   } catch (err) {
-    await unlink(tmpPath).catch(() => {});
+    await unlink(tmpPath).catch(() => {
+      /* noop */
+    });
     throw err;
   }
 }

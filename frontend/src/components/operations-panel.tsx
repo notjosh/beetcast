@@ -1,7 +1,7 @@
-import type { BuildProgress } from "@shared/schemas/build-events";
 import type { TaskSnapshot, TaskType } from "@shared/schemas/operations";
-import type { SyncProgress } from "@shared/schemas/sync-events";
 
+import { type BuildProgress, BuildProgressSchema } from "@shared/schemas/build-events";
+import { type SyncProgress, SyncProgressSchema } from "@shared/schemas/sync-events";
 import { ChevronDown, ChevronUp, Download, Loader2, Merge, RefreshCw, Search } from "lucide-react";
 import { useState } from "react";
 
@@ -30,7 +30,9 @@ export function OperationsPanel() {
   const [expanded, setExpanded] = useState(false);
 
   const activeTasks = Array.from(tasks.values());
-  if (activeTasks.length === 0) return null;
+  if (activeTasks.length === 0) {
+    return null;
+  }
 
   const running = activeTasks.filter((t) => t.status === "running").length;
   const queued = activeTasks.filter((t) => t.status === "queued").length;
@@ -38,10 +40,18 @@ export function OperationsPanel() {
   const failed = activeTasks.filter((t) => t.status === "failed").length;
 
   const summaryParts: string[] = [];
-  if (running > 0) summaryParts.push(`${running} running`);
-  if (queued > 0) summaryParts.push(`${queued} queued`);
-  if (completed > 0) summaryParts.push(`${completed} done`);
-  if (failed > 0) summaryParts.push(`${failed} failed`);
+  if (running > 0) {
+    summaryParts.push(`${running} running`);
+  }
+  if (queued > 0) {
+    summaryParts.push(`${queued} queued`);
+  }
+  if (completed > 0) {
+    summaryParts.push(`${completed} done`);
+  }
+  if (failed > 0) {
+    summaryParts.push(`${failed} failed`);
+  }
 
   return (
     <div className="border-b bg-muted/30">
@@ -97,8 +107,12 @@ function DownloadProgress({ progress }: { progress: BuildProgress }) {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -119,16 +133,18 @@ function MergeProgress({ progress }: { progress: BuildProgress }) {
 }
 
 function ProgressText({ task }: { task: TaskSnapshot }) {
-  if (!task.progress || task.status !== "running") return null;
+  if (!task.progress || task.status !== "running") {
+    return null;
+  }
 
   if (task.type === "download") {
-    return <DownloadProgress progress={task.progress as unknown as BuildProgress} />;
+    return <DownloadProgress progress={BuildProgressSchema.parse(task.progress)} />;
   }
   if (task.type === "merge") {
-    return <MergeProgress progress={task.progress as unknown as BuildProgress} />;
+    return <MergeProgress progress={BuildProgressSchema.parse(task.progress)} />;
   }
   if (task.type === "sync") {
-    return <SyncProgressText progress={task.progress as unknown as SyncProgress} />;
+    return <SyncProgressText progress={SyncProgressSchema.parse(task.progress)} />;
   }
 
   return null;

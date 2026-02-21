@@ -29,7 +29,9 @@ export async function clearMergedMp3(podcastSlug: string, episodeId: string): Pr
     await unlink(episodeMp3Path(podcastSlug, episodeId));
     return true;
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return false;
+    if (isNodeError(err) && err.code === "ENOENT") {
+      return false;
+    }
     throw err;
   }
 }
@@ -45,7 +47,9 @@ export async function clearTrackFiles(podcastSlug: string, episodeId: string): P
       deleted++;
     }
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return 0;
+    if (isNodeError(err) && err.code === "ENOENT") {
+      return 0;
+    }
     throw err;
   }
   return deleted;
@@ -73,12 +77,16 @@ export function episodeMp3Path(podcastSlug: string, episodeId: string): string {
 
 export async function getAllEpisodeMetas(podcastSlug: string): Promise<EpisodeMeta[]> {
   const index = await readEpisodeIndex(podcastSlug);
-  if (!index) return [];
+  if (!index) {
+    return [];
+  }
 
   const metas: EpisodeMeta[] = [];
   for (const entry of index.episodes) {
     const meta = await readEpisodeMeta(podcastSlug, entry.id);
-    if (meta) metas.push(meta);
+    if (meta) {
+      metas.push(meta);
+    }
   }
   return metas;
 }
@@ -131,7 +139,9 @@ export async function readEpisodeIndex(podcastSlug: string): Promise<EpisodeInde
     const raw: unknown = JSON.parse(await readFile(episodeIndexPath(podcastSlug), "utf-8"));
     return EpisodeIndexSchema.parse(raw);
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return null;
+    if (isNodeError(err) && err.code === "ENOENT") {
+      return null;
+    }
     throw err;
   }
 }
@@ -146,7 +156,9 @@ export async function readEpisodeMeta(
     );
     return EpisodeMetaSchema.parse(raw);
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return null;
+    if (isNodeError(err) && err.code === "ENOENT") {
+      return null;
+    }
     throw err;
   }
 }

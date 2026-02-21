@@ -63,7 +63,8 @@ describe("OperationQueue", () => {
   it("emits task-progress with correct data", async () => {
     const progressData = new Promise<Record<string, unknown>>((resolve) => {
       queue.on("task-progress", (snapshot) => {
-        resolve(snapshot.progress!);
+        assert(snapshot.progress);
+        resolve(snapshot.progress);
       });
     });
 
@@ -128,10 +129,14 @@ describe("OperationQueue", () => {
       ids.push(queue.submit("download", { episodeId: `e${i}`, podcastSlug: "p" }, neverResolve));
     }
 
-    expect(queue.getTask(ids[0]!)?.status).toBe("running");
-    expect(queue.getTask(ids[1]!)?.status).toBe("running");
-    expect(queue.getTask(ids[2]!)?.status).toBe("running");
-    expect(queue.getTask(ids[3]!)?.status).toBe("queued");
+    assert(ids[0]);
+    assert(ids[1]);
+    assert(ids[2]);
+    assert(ids[3]);
+    expect(queue.getTask(ids[0])?.status).toBe("running");
+    expect(queue.getTask(ids[1])?.status).toBe("running");
+    expect(queue.getTask(ids[2])?.status).toBe("running");
+    expect(queue.getTask(ids[3])?.status).toBe("queued");
   });
 
   // --------------- drain on completion ---------------
@@ -159,7 +164,9 @@ describe("OperationQueue", () => {
 
     const e2Started = new Promise<void>((resolve) => {
       queue.on("task-started", (s) => {
-        if (s.context.episodeId === "e2") resolve();
+        if (s.context.episodeId === "e2") {
+          resolve();
+        }
       });
     });
 

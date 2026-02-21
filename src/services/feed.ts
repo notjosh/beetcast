@@ -3,8 +3,34 @@ import { Podcast } from "podcast";
 
 import type { PodcastConfig } from "../schemas/config.js";
 import type { EpisodeMeta } from "../schemas/episode.js";
+import type { TrackMeta } from "../schemas/episode.js";
 
 import { getEpisodeFileSize } from "./audio.js";
+
+/** Build a Podcasting 2.0 chapters JSON object from track metadata. */
+export function buildChaptersJson(tracks: TrackMeta[]): {
+  chapters: { startTime: number; title: string }[];
+  version: string;
+} {
+  const sorted = [...tracks].sort((a, b) => a.position - b.position);
+  let offsetMs = 0;
+  const chapters = sorted.map((t) => {
+    const startTime = Math.round(offsetMs / 1000);
+    offsetMs += t.durationMs;
+    return { startTime, title: t.title };
+  });
+  return { chapters, version: "1.2.0" };
+}
+
+export function buildPscChapters(tracks: TrackMeta[]): { start: string; title: string }[] {
+  const sorted = [...tracks].sort((a, b) => a.position - b.position);
+  let offsetMs = 0;
+  return sorted.map((t) => {
+    const start = formatNPT(offsetMs);
+    offsetMs += t.durationMs;
+    return { start, title: t.title };
+  });
+}
 
 export async function generateFeed(
   podcastSlug: string,
@@ -69,8 +95,13 @@ export async function generateFeed(
 
     const fileSize = await getEpisodeFileSize(podcastSlug, ep.id);
 
+    const chaptersUrl = `${baseUrl}/${podcastSlug}/episode/${episodeSlug}/chapters.json`;
+
     feed.addItem({
       author: config.author,
+      customElements: [
+        { "podcast:chapters": { _attr: { type: "application/json+chapters", url: chaptersUrl } } },
+      ],
       date: ep.releaseDate ? new Date(ep.releaseDate) : new Date(),
       description: buildDescription(ep),
       enclosure: {
@@ -86,6 +117,10 @@ export async function generateFeed(
       itunesExplicit: config.explicit,
       itunesImage: episodeImageUrl,
       itunesTitle: ep.cleanTitle,
+      pscChapters: {
+        chapter: buildPscChapters(ep.tracks),
+        version: "1.2",
+      },
       title: ep.title,
       url: ep.bandcampUrl,
     });
@@ -99,8 +134,10 @@ export function uuidv5(name: string): string {
   // RFC 4122 URL namespace: 6ba7b811-9dad-11d1-80b4-00c04fd430c8
   const nsBytes = Buffer.from("6ba7b8119dad11d180b400c04fd430c8", "hex");
   const hash = createHash("sha1").update(nsBytes).update(name).digest();
-  hash[6] = (hash[6]! & 0x0f) | 0x50; // version 5
-  hash[8] = (hash[8]! & 0x3f) | 0x80; // variant RFC 4122
+  const b6 = hash[6] ?? 0;
+  const b8 = hash[8] ?? 0;
+  hash[6] = (b6 & 0x0f) | 0x50; // version 5
+  hash[8] = (b8 & 0x3f) | 0x80; // variant RFC 4122
   const hex = hash.subarray(0, 16).toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
@@ -112,7 +149,9 @@ function buildDescription(ep: EpisodeMeta): string {
   } else {
     // Build a fallback description from available metadata
     const parts: string[] = [ep.cleanTitle];
-    if (ep.credits) parts.push(ep.credits);
+    if (ep.credits) {
+      parts.push(ep.credits);
+    }
     if (ep.tracks.length > 0) {
       parts.push("Tracklist:");
       for (const t of ep.tracks) {
@@ -122,6 +161,16 @@ function buildDescription(ep: EpisodeMeta): string {
     body = textToHtml(parts.join("\n"));
   }
   return `${body}<br>\n<hr>\nOriginal: <a href="${ep.bandcampUrl}">${ep.bandcampUrl}</a>`;
+}
+
+/** Format milliseconds as Normal Play Time (HH:MM:SS.mmm) */
+function formatNPT(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const millis = ms % 1000;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
 function linkifyUrls(text: string): string {

@@ -21,7 +21,7 @@ export function parseEpisodeTitle(title: string): ParsedTitle {
       const partStr = match[2]?.toUpperCase();
       const titleStr = match[3]?.trim();
       return {
-        cleanTitle: titleStr || title,
+        cleanTitle: titleStr ?? title,
         episodeNumber: parseInt(numStr, 10),
         episodePart: partStr,
       };

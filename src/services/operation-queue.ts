@@ -51,7 +51,9 @@ export class OperationQueue {
   /** Cancel a queued (not running) task. Returns true if cancelled. */
   cancel(taskId: string): boolean {
     const task = this.tasks.get(taskId);
-    if (!task || task.status !== "queued") return false;
+    if (task?.status !== "queued") {
+      return false;
+    }
     this.tasks.delete(taskId);
     return true;
   }
@@ -115,7 +117,9 @@ export class OperationQueue {
   private countByStatus(type: TaskType, status: TaskStatus): number {
     let count = 0;
     for (const task of this.tasks.values()) {
-      if (task.type === type && task.status === status) count++;
+      if (task.type === type && task.status === status) {
+        count++;
+      }
     }
     return count;
   }
@@ -125,14 +129,16 @@ export class OperationQueue {
     const limit = CONCURRENCY_LIMITS[type];
     const running = this.countByStatus(type, "running");
     const available = limit - running;
-    if (available <= 0) return;
+    if (available <= 0) {
+      return;
+    }
 
     const queued = Array.from(this.tasks.values()).filter(
       (t) => t.type === type && t.status === "queued",
     );
 
-    for (let i = 0; i < Math.min(available, queued.length); i++) {
-      this.run(queued[i]!);
+    for (const task of queued.slice(0, available)) {
+      this.run(task);
     }
   }
 

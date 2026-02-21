@@ -211,9 +211,7 @@ export async function syncUnsyncedEpisodes(
   let skippedCount = 0;
   let erroredCount = 0;
 
-  for (let i = 0; i < unsyncedEntries.length; i++) {
-    const entry = unsyncedEntries[i]!;
-
+  for (const [i, entry] of unsyncedEntries.entries()) {
     log.info(
       { bandcampUrl: entry.bandcampUrl, episodeId: entry.id, title: entry.title },
       "Syncing episode detail",
@@ -372,7 +370,9 @@ function extractBandcampSlug(url: string): string {
   try {
     const pathname = new URL(url).pathname;
     const lastSegment = pathname.split("/").filter(Boolean).pop();
-    if (lastSegment) return lastSegment;
+    if (lastSegment) {
+      return lastSegment;
+    }
   } catch {
     // malformed URL — fall through
   }

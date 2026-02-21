@@ -38,10 +38,7 @@ export function zodFetcher<T>(schema: z.ZodType<T>) {
  *   await trigger();              // POST with no body
  *   await trigger({ name: "x" }); // POST with JSON body
  */
-export function zodMutator<TResponse, TBody = void>(
-  schema: z.ZodType<TResponse>,
-  method: string = "POST",
-) {
+export function zodMutator<TResponse, TBody = void>(schema: z.ZodType<TResponse>, method = "POST") {
   return async (url: string, options?: { arg: TBody }): Promise<TResponse> => {
     const init: RequestInit = { method };
     if (options?.arg !== undefined) {
@@ -59,7 +56,9 @@ async function apiRequest<T>(url: string, schema: z.ZodType<T>, init?: RequestIn
   const res = await fetch(url, init);
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
-    if (res.status === 404) throw new NotFoundError(body);
+    if (res.status === 404) {
+      throw new NotFoundError(body);
+    }
     throw new ApiError(res.status, body);
   }
   const data: unknown = await res.json();

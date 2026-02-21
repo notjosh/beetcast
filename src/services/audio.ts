@@ -155,7 +155,9 @@ async function downloadEpisodeTracksInner(
   const missingTracks: typeof meta.tracks = [];
   for (const track of meta.tracks) {
     const exists = await storage.hasTrackFile(podcastSlug, episodeId, track.filename);
-    if (!exists) missingTracks.push(track);
+    if (!exists) {
+      missingTracks.push(track);
+    }
   }
 
   if (missingTracks.length === 0) {
@@ -256,7 +258,9 @@ async function mergeEpisodeMp3Inner(
     onProgress?.({ phase: "done" });
     log.info({ episodeId }, "Episode MP3 merged successfully");
   } catch (err) {
-    await unlink(tmpPath).catch(() => {});
+    await unlink(tmpPath).catch(() => {
+      /* noop */
+    });
     throw err;
   }
 }
@@ -319,8 +323,10 @@ async function mergeTracksToEpisode(
 }
 
 function parseFfmpegTime(line: string): null | number {
-  const match = line.match(/time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
-  if (!match) return null;
+  const match = /time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})/.exec(line);
+  if (!match) {
+    return null;
+  }
   const [, h, m, s, cs] = match;
   return Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(cs) / 100;
 }

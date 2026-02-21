@@ -9,7 +9,9 @@ import { EpisodeDetail } from "./pages/episode-detail";
 import { EpisodeList } from "./pages/episode-list";
 
 const root = document.getElementById("root");
-if (!root) throw new Error("Missing root element");
+if (!root) {
+  throw new Error("Missing root element");
+}
 
 createRoot(root).render(
   <StrictMode>

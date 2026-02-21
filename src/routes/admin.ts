@@ -50,7 +50,9 @@ app.get("/podcasts", async (c) => {
 app.get("/podcasts/:podcast", async (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const index = await storage.readEpisodeIndex(slug);
   if (!index) {
@@ -104,7 +106,9 @@ app.get("/podcasts/:podcast/episodes/:id", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const meta = await storage.readEpisodeMeta(slug, id);
 
@@ -134,7 +138,9 @@ app.get("/podcasts/:podcast/episodes/:id", async (c) => {
   // No meta.json yet — fall back to the index entry (unsynced episode)
   const index = await storage.readEpisodeIndex(slug);
   const entry = index?.episodes.find((e) => e.id === id);
-  if (!entry) return c.notFound();
+  if (!entry) {
+    return c.notFound();
+  }
 
   return c.json({
     artworkExists: false,
@@ -223,7 +229,9 @@ app.get("/podcasts/:podcast/episodes/:id/artwork", async (c) => {
 app.post("/podcasts/:podcast/discover", (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const taskId = operationQueue.submit(
     "discover",
@@ -233,26 +241,28 @@ app.post("/podcasts/:podcast/discover", (c) => {
     },
   );
 
-  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
+  return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
 // POST /api/admin/podcasts/:podcast/sync — submit sync task
 app.post("/podcasts/:podcast/sync", (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const taskId = operationQueue.submit(
     "sync",
     { podcastSlug: slug, podcastTitle: config.title },
     async (onProgress) => {
       await syncUnsyncedEpisodes(slug, (progress) => {
-        onProgress(progress as unknown as Record<string, unknown>);
+        onProgress(Object.fromEntries(Object.entries(progress)));
       });
     },
   );
 
-  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
+  return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
 // POST /api/admin/podcasts/:podcast/episodes/:id/sync — submit single sync task
@@ -260,7 +270,9 @@ app.post("/podcasts/:podcast/episodes/:id/sync", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   // Look up episode title from the index
   const index = await storage.readEpisodeIndex(slug);
@@ -274,7 +286,7 @@ app.post("/podcasts/:podcast/episodes/:id/sync", async (c) => {
     },
   );
 
-  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
+  return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
 // PATCH /api/admin/podcasts/:podcast/episodes/:id — update episode metadata
@@ -282,7 +294,9 @@ app.patch("/podcasts/:podcast/episodes/:id", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const body: unknown = await c.req.json();
   const parsed = EpisodePatchRequestSchema.safeParse(body);
@@ -336,7 +350,9 @@ app.delete("/podcasts/:podcast/episodes/:id/files", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const target = c.req.query("target") ?? "all";
   if (target !== "tracks" && target !== "merged" && target !== "all") {
@@ -386,7 +402,9 @@ app.post("/podcasts/:podcast/episodes/:id/download", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const index = await storage.readEpisodeIndex(slug);
   const entry = index?.episodes.find((e) => e.id === id);
@@ -396,12 +414,12 @@ app.post("/podcasts/:podcast/episodes/:id/download", async (c) => {
     { episodeId: id, episodeTitle: entry?.title, podcastSlug: slug, podcastTitle: config.title },
     async (onProgress) => {
       await downloadEpisodeTracks(slug, id, (progress) => {
-        onProgress(progress as unknown as Record<string, unknown>);
+        onProgress(Object.fromEntries(Object.entries(progress)));
       });
     },
   );
 
-  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
+  return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
 // POST /api/admin/podcasts/:podcast/episodes/:id/merge — submit merge task
@@ -409,7 +427,9 @@ app.post("/podcasts/:podcast/episodes/:id/merge", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const index = await storage.readEpisodeIndex(slug);
   const entry = index?.episodes.find((e) => e.id === id);
@@ -419,19 +439,21 @@ app.post("/podcasts/:podcast/episodes/:id/merge", async (c) => {
     { episodeId: id, episodeTitle: entry?.title, podcastSlug: slug, podcastTitle: config.title },
     async (onProgress) => {
       await mergeEpisodeMp3(slug, id, config, (progress) => {
-        onProgress(progress as unknown as Record<string, unknown>);
+        onProgress(Object.fromEntries(Object.entries(progress)));
       });
     },
   );
 
-  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
+  return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
 // POST /api/admin/podcasts/:podcast/build — submit build tasks for all unmerged episodes
 app.post("/podcasts/:podcast/build", async (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   const index = await storage.readEpisodeIndex(slug);
   if (!index) {
@@ -453,7 +475,7 @@ app.post("/podcasts/:podcast/build", async (c) => {
       },
       async (onProgress) => {
         await buildEpisodeMp3(slug, entry.id, config, (progress) => {
-          onProgress(progress as unknown as Record<string, unknown>);
+          onProgress(Object.fromEntries(Object.entries(progress)));
         });
       },
     );

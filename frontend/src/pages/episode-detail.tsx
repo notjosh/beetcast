@@ -1,5 +1,3 @@
-import type { BuildProgress } from "@shared/schemas/build-events";
-
 import {
   type ClearFilesResponse,
   ClearFilesResponseSchema,
@@ -9,6 +7,7 @@ import {
   type EpisodePatchResponse,
   EpisodePatchResponseSchema,
 } from "@shared/schemas/admin-api";
+import { type BuildProgress, BuildProgressSchema } from "@shared/schemas/build-events";
 import {
   ArrowLeft,
   Check,
@@ -56,7 +55,7 @@ import { zodFetcher, zodMutator } from "@/lib/api";
 import { useOperation } from "@/lib/use-operation";
 
 export function EpisodeDetail() {
-  const { id, podcast } = useParams<{ id: string; podcast: string }>();
+  const { id = "", podcast = "" } = useParams<{ id: string; podcast: string }>();
   const {
     data: episode,
     isLoading,
@@ -76,9 +75,9 @@ export function EpisodeDetail() {
     zodMutator<ClearFilesResponse>(ClearFilesResponseSchema, "DELETE"),
   );
 
-  const syncOp = useOperation("sync-single", podcast!, id);
-  const downloadOp = useOperation("download", podcast!, id);
-  const mergeOp = useOperation("merge", podcast!, id);
+  const syncOp = useOperation("sync-single", podcast, id);
+  const downloadOp = useOperation("download", podcast, id);
+  const mergeOp = useOperation("merge", podcast, id);
 
   // Revalidate data when operations complete
   const prevSyncStatus = useRef(syncOp.task?.status);
@@ -88,7 +87,9 @@ export function EpisodeDetail() {
   useEffect(() => {
     const wasActive = prevSyncStatus.current === "running" || prevSyncStatus.current === "queued";
     const isDone = syncOp.task?.status === "completed" || syncOp.task?.status === "failed";
-    if (wasActive && isDone) mutate();
+    if (wasActive && isDone) {
+      void mutate();
+    }
     prevSyncStatus.current = syncOp.task?.status;
   }, [syncOp.task?.status, mutate]);
 
@@ -96,27 +97,31 @@ export function EpisodeDetail() {
     const wasActive =
       prevDownloadStatus.current === "running" || prevDownloadStatus.current === "queued";
     const isDone = downloadOp.task?.status === "completed" || downloadOp.task?.status === "failed";
-    if (wasActive && isDone) mutate();
+    if (wasActive && isDone) {
+      void mutate();
+    }
     prevDownloadStatus.current = downloadOp.task?.status;
   }, [downloadOp.task?.status, mutate]);
 
   useEffect(() => {
     const wasActive = prevMergeStatus.current === "running" || prevMergeStatus.current === "queued";
     const isDone = mergeOp.task?.status === "completed" || mergeOp.task?.status === "failed";
-    if (wasActive && isDone) mutate();
+    if (wasActive && isDone) {
+      void mutate();
+    }
     prevMergeStatus.current = mergeOp.task?.status;
   }, [mergeOp.task?.status, mutate]);
 
   const handleSync = () => {
-    syncOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/sync`);
+    void syncOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/sync`);
   };
 
   const handleDownload = () => {
-    downloadOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/download`);
+    void downloadOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/download`);
   };
 
   const handleMerge = () => {
-    mergeOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/merge`);
+    void mergeOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/merge`);
   };
 
   const handleClear = async () => {
@@ -125,7 +130,9 @@ export function EpisodeDetail() {
   };
 
   const handleToggleSkip = async () => {
-    if (!episode) return;
+    if (!episode) {
+      return;
+    }
     await triggerPatch({ skipped: !episode.skipped });
     await mutate();
   };
@@ -304,7 +311,7 @@ export function EpisodeDetail() {
               </Button>
               <Button
                 disabled={isPending || patching || syncOp.isActive}
-                onClick={handleToggleSkip}
+                onClick={() => void handleToggleSkip()}
                 size="sm"
                 variant="outline"
               >
@@ -366,7 +373,9 @@ export function EpisodeDetail() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleClear}>Clear Files</AlertDialogAction>
+                    <AlertDialogAction onClick={() => void handleClear()}>
+                      Clear Files
+                    </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -374,7 +383,7 @@ export function EpisodeDetail() {
             {downloadOp.isActive && downloadOp.progress && (
               <CardContent className="pt-0">
                 <p className="text-sm text-muted-foreground">
-                  {formatDownloadProgress(downloadOp.progress as unknown as BuildProgress)}
+                  {formatDownloadProgress(BuildProgressSchema.parse(downloadOp.progress))}
                 </p>
               </CardContent>
             )}
@@ -386,7 +395,7 @@ export function EpisodeDetail() {
             {mergeOp.isActive && mergeOp.progress && (
               <CardContent className="pt-0">
                 <p className="text-sm text-muted-foreground">
-                  {formatMergeProgress(mergeOp.progress as unknown as BuildProgress)}
+                  {formatMergeProgress(BuildProgressSchema.parse(mergeOp.progress))}
                 </p>
               </CardContent>
             )}
@@ -405,9 +414,9 @@ export function EpisodeDetail() {
               <EpisodeNumberEditor
                 disabled={isPending}
                 episode={episode}
-                id={id!}
-                onSaved={() => mutate()}
-                podcast={podcast!}
+                id={id}
+                onSaved={() => void mutate()}
+                podcast={podcast}
               />
               {episode.releaseDate && (
                 <div className="flex items-center gap-2">
@@ -484,7 +493,9 @@ function EpisodeNumberEditor({
 
   const handleSave = async () => {
     const episodeNumber = numStr.trim() ? parseInt(numStr.trim(), 10) : undefined;
-    if (numStr.trim() && isNaN(episodeNumber as number)) return;
+    if (numStr.trim() && (episodeNumber === undefined || isNaN(episodeNumber))) {
+      return;
+    }
     const episodePart = part.trim().toUpperCase() || undefined;
     await trigger({ episodeNumber, episodePart });
     setEditing(false);
@@ -518,7 +529,7 @@ function EpisodeNumberEditor({
           type="text"
           value={part}
         />
-        <Button disabled={isMutating} onClick={handleSave} size="sm" variant="ghost">
+        <Button disabled={isMutating} onClick={() => void handleSave()} size="sm" variant="ghost">
           <Check className="h-3 w-3" />
         </Button>
         <Button disabled={isMutating} onClick={handleCancel} size="sm" variant="ghost">
@@ -544,13 +555,20 @@ function EpisodeNumberEditor({
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatDownloadProgress(progress: BuildProgress): string {
   switch (progress.phase) {
+    case "chapters":
+    case "merging":
+      return "";
     case "done":
       return "Done!";
     case "downloading": {
@@ -562,8 +580,6 @@ function formatDownloadProgress(progress: BuildProgress): string {
       }
       return trackLabel;
     }
-    default:
-      return "";
   }
 }
 
@@ -584,9 +600,9 @@ function formatMergeProgress(progress: BuildProgress): string {
       return "Writing chapters...";
     case "done":
       return "Done!";
+    case "downloading":
+      return "";
     case "merging":
       return `Merging — ${progress.percent ?? 0}%`;
-    default:
-      return "";
   }
 }

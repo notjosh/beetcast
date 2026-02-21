@@ -31,13 +31,11 @@ app.get("/stream", (c) => {
       "task-failed",
     ];
 
-    const listener = async (snapshot: TaskSnapshot) => {
-      try {
-        const event = sseEventForSnapshot(snapshot);
-        await stream.writeSSE({ data: JSON.stringify(snapshot), event });
-      } catch {
+    const listener = (snapshot: TaskSnapshot) => {
+      const event = sseEventForSnapshot(snapshot);
+      void stream.writeSSE({ data: JSON.stringify(snapshot), event }).catch(() => {
         // Stream closed — will be cleaned up on abort
-      }
+      });
     };
 
     for (const event of events) {
@@ -45,12 +43,10 @@ app.get("/stream", (c) => {
     }
 
     // Keepalive every 15s
-    const keepalive = setInterval(async () => {
-      try {
-        await stream.writeSSE({ data: "", event: "keepalive" });
-      } catch {
+    const keepalive = setInterval(() => {
+      void stream.writeSSE({ data: "", event: "keepalive" }).catch(() => {
         // Stream closed
-      }
+      });
     }, 15_000);
 
     // Clean up when connection closes
@@ -71,7 +67,9 @@ app.get("/stream", (c) => {
 // GET /api/admin/operations/:id — single task snapshot
 app.get("/:id", (c) => {
   const task = operationQueue.getTask(c.req.param("id"));
-  if (!task) return c.notFound();
+  if (!task) {
+    return c.notFound();
+  }
   return c.json(task);
 });
 

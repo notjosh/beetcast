@@ -9,27 +9,31 @@ import type { PodcastConfig } from "../schemas/config.js";
 import { getConfigBySlug } from "../config.js";
 import { buildEpisodeMp3 } from "../services/audio.js";
 import { discoverEpisodes, syncUnsyncedEpisodes } from "../services/bandcamp.js";
-import { generateFeed } from "../services/feed.js";
+import { buildChaptersJson, generateFeed } from "../services/feed.js";
 import * as storage from "../services/storage.js";
 
 const log = pino({ name: "routes:podcast" });
 
-type Env = {
+interface Env {
   Variables: {
     podcastConfig: PodcastConfig;
     podcastSlug: string;
   };
-};
+}
 
 const app = new Hono<Env>();
 
 // Middleware: resolve podcast slug to config
 app.use("/*", async (c, next) => {
   const slug = c.req.param("podcast");
-  if (!slug) return c.notFound();
+  if (!slug) {
+    return c.notFound();
+  }
 
   const config = getConfigBySlug(slug);
-  if (!config) return c.notFound();
+  if (!config) {
+    return c.notFound();
+  }
 
   c.set("podcastSlug", slug);
   c.set("podcastConfig", config);
@@ -43,12 +47,16 @@ async function resolveEpisodeId(podcastSlug: string, idParam: string): Promise<n
     const index = await storage.readEpisodeIndex(podcastSlug);
     if (index) {
       const entry = index.episodes.find((e) => e.episodeNumber === num);
-      if (entry) return entry.id;
+      if (entry) {
+        return entry.id;
+      }
     }
   }
   // Fall back to using the param as a slug/id directly
   const meta = await storage.readEpisodeMeta(podcastSlug, idParam);
-  if (meta) return idParam;
+  if (meta) {
+    return idParam;
+  }
   return null;
 }
 
@@ -81,7 +89,7 @@ function streamFile(
 app.on(["GET", "HEAD"], "/feed.xml", async (c) => {
   const slug = c.get("podcastSlug");
   const config = c.get("podcastConfig");
-  const baseUrl = process.env["BASE_URL"] ?? "http://localhost:3000";
+  const baseUrl = process.env.BASE_URL ?? "http://localhost:3000";
 
   // Check if we need to refresh
   const index = await storage.readEpisodeIndex(slug);
@@ -131,8 +139,12 @@ app.on(["GET", "HEAD"], "/feed.xml", async (c) => {
   const headers: Record<string, string> = {
     "Content-Type": "application/rss+xml; charset=utf-8",
   };
-  if (etagValue) headers["ETag"] = etagValue;
-  if (lastModified) headers["Last-Modified"] = lastModified;
+  if (etagValue) {
+    headers.ETag = etagValue;
+  }
+  if (lastModified) {
+    headers["Last-Modified"] = lastModified;
+  }
 
   if (c.req.method === "HEAD") {
     return c.body(null, 200, headers);
@@ -177,7 +189,9 @@ app.on(["GET", "HEAD"], "/artwork.jpg", async (c) => {
 app.on(["GET", "HEAD"], "/episode/:id/artwork.jpg", async (c) => {
   const slug = c.get("podcastSlug");
   const episodeId = await resolveEpisodeId(slug, c.req.param("id"));
-  if (!episodeId) return c.notFound();
+  if (!episodeId) {
+    return c.notFound();
+  }
 
   const artPath = storage.artworkPath(slug, episodeId);
   try {
@@ -195,6 +209,22 @@ app.on(["GET", "HEAD"], "/episode/:id/artwork.jpg", async (c) => {
   }
 });
 
+// GET /episode/:id/chapters.json — Podcasting 2.0 chapters
+app.get("/episode/:id/chapters.json", async (c) => {
+  const slug = c.get("podcastSlug");
+  const episodeId = await resolveEpisodeId(slug, c.req.param("id"));
+  if (!episodeId) {
+    return c.notFound();
+  }
+
+  const meta = await storage.readEpisodeMeta(slug, episodeId);
+  if (!meta) {
+    return c.notFound();
+  }
+
+  return c.json(buildChaptersJson(meta.tracks));
+});
+
 // GET|HEAD /episode/:id
 app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
   const slug = c.get("podcastSlug");
@@ -204,7 +234,9 @@ app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
   if (idParam.endsWith(".mp3")) {
     const cleanId = idParam.slice(0, -4);
     const episodeId = await resolveEpisodeId(slug, cleanId);
-    if (!episodeId) return c.notFound();
+    if (!episodeId) {
+      return c.notFound();
+    }
 
     const config = c.get("podcastConfig");
 
@@ -236,7 +268,7 @@ app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
         });
       }
 
-      const start = parseInt(match[1]!, 10);
+      const start = parseInt(match[1] ?? "", 10);
       const end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
 
       if (start >= totalSize || end >= totalSize || start > end) {
@@ -271,10 +303,14 @@ app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
 
   // JSON metadata
   const episodeId = await resolveEpisodeId(slug, idParam);
-  if (!episodeId) return c.notFound();
+  if (!episodeId) {
+    return c.notFound();
+  }
 
   const meta = await storage.readEpisodeMeta(slug, episodeId);
-  if (!meta) return c.notFound();
+  if (!meta) {
+    return c.notFound();
+  }
 
   return c.json(meta);
 });

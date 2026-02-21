@@ -1,6 +1,11 @@
-import type { TaskSnapshot, TaskType } from "@shared/schemas/operations";
-
+import {
+  SubmitTaskResponseSchema,
+  type TaskSnapshot,
+  TaskSnapshotSchema,
+  type TaskType,
+} from "@shared/schemas/operations";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { z } from "zod/v4";
 
 interface OperationsContextValue {
   /** Get all tasks for a specific episode */
@@ -32,7 +37,7 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
     eventSource.onerror = () => setIsConnected(false);
 
     const handleEvent = (e: MessageEvent) => {
-      const snapshot = JSON.parse(e.data as string) as TaskSnapshot;
+      const snapshot = TaskSnapshotSchema.parse(JSON.parse(String(e.data)));
       setTasks((prev) => {
         const next = new Map(prev);
         next.set(snapshot.id, snapshot);
@@ -43,7 +48,9 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
       if (snapshot.status === "completed" || snapshot.status === "failed") {
         // Clear any existing timer
         const existing = fadeTimers.current.get(snapshot.id);
-        if (existing) clearTimeout(existing);
+        if (existing) {
+          clearTimeout(existing);
+        }
 
         const timer = setTimeout(() => {
           setTasks((prev) => {
@@ -100,13 +107,11 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
     const res = await fetch(url, { method: "POST" });
     if (!res.ok) {
       const body: unknown = await res.json().catch(() => null);
-      const msg =
-        body !== null && typeof body === "object" && "message" in body
-          ? String((body as { message: string }).message)
-          : `Request failed: ${res.status}`;
+      const parsed = z.object({ message: z.string() }).safeParse(body);
+      const msg = parsed.success ? parsed.data.message : `Request failed: ${res.status}`;
       throw new Error(msg);
     }
-    const data = (await res.json()) as { taskId: string };
+    const data = SubmitTaskResponseSchema.parse(await res.json());
     return data.taskId;
   }, []);
 
@@ -121,6 +126,8 @@ export function OperationsProvider({ children }: { children: React.ReactNode }) 
 
 export function useOperations(): OperationsContextValue {
   const ctx = useContext(OperationsContext);
-  if (!ctx) throw new Error("useOperations must be used within OperationsProvider");
+  if (!ctx) {
+    throw new Error("useOperations must be used within OperationsProvider");
+  }
   return ctx;
 }

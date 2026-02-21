@@ -1,6 +1,5 @@
-import type { SyncProgress } from "@shared/schemas/sync-events";
-
 import { type PodcastDetailResponse, PodcastDetailResponseSchema } from "@shared/schemas/admin-api";
+import { type SyncProgress, SyncProgressSchema } from "@shared/schemas/sync-events";
 import { ArrowLeft, Hammer, RefreshCw, Rss, Search } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -23,15 +22,15 @@ import { useOperations } from "@/lib/operations-context";
 import { useOperation } from "@/lib/use-operation";
 
 export function EpisodeList() {
-  const { podcast } = useParams<{ podcast: string }>();
+  const { podcast = "" } = useParams<{ podcast: string }>();
   const { data, error, isLoading, mutate } = useSWR<PodcastDetailResponse>(
     `/api/admin/podcasts/${podcast}`,
     zodFetcher(PodcastDetailResponseSchema),
   );
 
   const { submitTask } = useOperations();
-  const discoverOp = useOperation("discover", podcast!);
-  const syncOp = useOperation("sync", podcast!);
+  const discoverOp = useOperation("discover", podcast);
+  const syncOp = useOperation("sync", podcast);
 
   // Revalidate when discover or sync complete
   const prevDiscoverStatus = useRef(discoverOp.task?.status);
@@ -41,29 +40,33 @@ export function EpisodeList() {
     const wasActive =
       prevDiscoverStatus.current === "running" || prevDiscoverStatus.current === "queued";
     const isDone = discoverOp.task?.status === "completed" || discoverOp.task?.status === "failed";
-    if (wasActive && isDone) mutate();
+    if (wasActive && isDone) {
+      void mutate();
+    }
     prevDiscoverStatus.current = discoverOp.task?.status;
   }, [discoverOp.task?.status, mutate]);
 
   useEffect(() => {
     const wasActive = prevSyncStatus.current === "running" || prevSyncStatus.current === "queued";
     const isDone = syncOp.task?.status === "completed" || syncOp.task?.status === "failed";
-    if (wasActive && isDone) mutate();
+    if (wasActive && isDone) {
+      void mutate();
+    }
     prevSyncStatus.current = syncOp.task?.status;
   }, [syncOp.task?.status, mutate]);
 
   const busy = discoverOp.isActive || syncOp.isActive;
 
   const handleDiscover = () => {
-    submitTask(`/api/admin/podcasts/${podcast}/discover`);
+    void submitTask(`/api/admin/podcasts/${podcast}/discover`);
   };
 
   const handleSync = () => {
-    submitTask(`/api/admin/podcasts/${podcast}/sync`);
+    void submitTask(`/api/admin/podcasts/${podcast}/sync`);
   };
 
   const handleBuild = () => {
-    submitTask(`/api/admin/podcasts/${podcast}/build`);
+    void submitTask(`/api/admin/podcasts/${podcast}/build`);
   };
 
   if (isLoading) {
@@ -103,7 +106,9 @@ export function EpisodeList() {
             alt=""
             className="h-16 w-16 rounded-lg object-cover hidden sm:block"
             onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
+              if (e.target instanceof HTMLImageElement) {
+                e.target.style.display = "none";
+              }
             }}
             src={`/api/admin/podcasts/${podcast}/artwork`}
           />
@@ -148,7 +153,7 @@ export function EpisodeList() {
       </div>
 
       {syncOp.isRunning && syncOp.progress && (
-        <SyncProgressBar progress={syncOp.progress as unknown as SyncProgress} />
+        <SyncProgressBar progress={SyncProgressSchema.parse(syncOp.progress)} />
       )}
 
       {syncOp.error && !syncOp.isActive && (
@@ -222,16 +227,28 @@ export function EpisodeList() {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function statusBadge(ep: PodcastDetailResponse["episodes"][number]) {
-  if (!ep.synced) return <Badge variant="outline">Pending</Badge>;
-  if (ep.skipped) return <Badge variant="destructive">Skipped</Badge>;
-  if (ep.merged) return <Badge variant="success">Cached</Badge>;
-  if (ep.allTracksDownloaded) return <Badge variant="secondary">Downloaded</Badge>;
+  if (!ep.synced) {
+    return <Badge variant="outline">Pending</Badge>;
+  }
+  if (ep.skipped) {
+    return <Badge variant="destructive">Skipped</Badge>;
+  }
+  if (ep.merged) {
+    return <Badge variant="success">Cached</Badge>;
+  }
+  if (ep.allTracksDownloaded) {
+    return <Badge variant="secondary">Downloaded</Badge>;
+  }
   return <Badge variant="warning">Synced</Badge>;
 }
 

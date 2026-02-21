@@ -19,12 +19,14 @@ app.use("*", logger());
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 // Basic auth — protects everything except health and public podcast GET routes
-const adminUser = process.env["ADMIN_USERNAME"];
-const adminPass = process.env["ADMIN_PASSWORD"];
+const adminUser = process.env.ADMIN_USERNAME;
+const adminPass = process.env.ADMIN_PASSWORD;
 if (adminUser && adminPass) {
   const auth = basicAuth({ password: adminPass, username: adminUser });
   app.use("*", async (c, next) => {
-    if (c.req.path === "/health" || c.req.path === "/") return next();
+    if (c.req.path === "/health" || c.req.path === "/") {
+      return next();
+    }
     // Public podcast routes: feed, artwork, episode content
     if (
       (c.req.method === "GET" || c.req.method === "HEAD") &&
@@ -37,7 +39,7 @@ if (adminUser && adminPass) {
 }
 
 // Admin API (consumed by the frontend on its own port)
-const adminEnabled = process.env["ADMIN_ENABLED"] !== "false";
+const adminEnabled = process.env.ADMIN_ENABLED !== "false";
 if (adminEnabled) {
   app.route("/api/admin/operations", operationsRoutes);
   app.route("/api/admin", adminRoutes);
@@ -57,8 +59,8 @@ app.get("/", serveStatic({ path: "index.html", root: "dist/frontend" }));
 // Podcast routes
 app.route("/:podcast", podcastRoutes);
 
-const port = parseInt(process.env["PORT"] ?? "3000", 10);
-const baseUrl = process.env["BASE_URL"] ?? `http://localhost:${port}`;
+const port = parseInt(process.env.PORT ?? "3000", 10);
+const baseUrl = process.env.BASE_URL ?? `http://localhost:${port}`;
 
 log.info({ adminEnabled, baseUrl, port }, "Starting server");
 
