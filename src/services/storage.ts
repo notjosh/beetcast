@@ -63,6 +63,10 @@ export function episodeDir(podcastSlug: string, episodeId: string): string {
   return resolve(DATA_DIR, podcastSlug, "episodes", episodeId);
 }
 
+export function episodeIndexPath(podcastSlug: string): string {
+  return resolve(podcastDir(podcastSlug), "episodes.json");
+}
+
 export function episodeMp3Path(podcastSlug: string, episodeId: string): string {
   return resolve(episodeDir(podcastSlug, episodeId), "episode.mp3");
 }
@@ -173,10 +177,6 @@ async function atomicWriteJson(filePath: string, data: unknown): Promise<void> {
   const tmpPath = filePath + ".tmp";
   await writeFile(tmpPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
   await rename(tmpPath, filePath);
-}
-
-function episodeIndexPath(podcastSlug: string): string {
-  return resolve(podcastDir(podcastSlug), "episodes.json");
 }
 
 function episodeMetaPath(podcastSlug: string, episodeId: string): string {

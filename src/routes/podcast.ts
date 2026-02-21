@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import pino from "pino";
@@ -51,8 +52,33 @@ async function resolveEpisodeId(podcastSlug: string, idParam: string): Promise<n
   return null;
 }
 
-// GET /feed.xml
-app.get("/feed.xml", async (c) => {
+/** Stream a file as a Response with the given content type */
+function streamFile(
+  filePath: string,
+  stats: { size: number },
+  contentType: string,
+  extraHeaders?: Record<string, string>,
+): Response {
+  const stream = createReadStream(filePath);
+  const readable = new ReadableStream({
+    start(controller) {
+      stream.on("data", (chunk: Buffer) => controller.enqueue(chunk));
+      stream.on("end", () => controller.close());
+      stream.on("error", (err) => controller.error(err));
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      "Content-Length": stats.size.toString(),
+      "Content-Type": contentType,
+      ...extraHeaders,
+    },
+  });
+}
+
+// GET|HEAD /feed.xml
+app.on(["GET", "HEAD"], "/feed.xml", compress({ encoding: "gzip" }), async (c) => {
   const slug = c.get("podcastSlug");
   const config = c.get("podcastConfig");
   const baseUrl = process.env["BASE_URL"] ?? "http://localhost:3000";
@@ -73,42 +99,73 @@ app.get("/feed.xml", async (c) => {
     }
   }
 
+  // Use index file mtime for caching headers
+  let lastModified: string | undefined;
+  let etagValue: string | undefined;
+  try {
+    const indexStat = await stat(storage.episodeIndexPath(slug));
+    lastModified = indexStat.mtime.toUTCString();
+    etagValue = `"${indexStat.mtimeMs.toString(36)}"`;
+  } catch {
+    // No index file yet — skip caching headers
+  }
+
+  // Check conditional headers before generating the feed
+  if (etagValue) {
+    const ifNoneMatch = c.req.header("If-None-Match");
+    if (ifNoneMatch === etagValue) {
+      return c.body(null, 304);
+    }
+  }
+  if (lastModified) {
+    const ifModifiedSince = c.req.header("If-Modified-Since");
+    if (ifModifiedSince) {
+      const clientDate = new Date(ifModifiedSince).getTime();
+      const serverDate = new Date(lastModified).getTime();
+      if (!isNaN(clientDate) && clientDate >= serverDate) {
+        return c.body(null, 304);
+      }
+    }
+  }
+
+  const cacheHeaders: Record<string, string> = {
+    "Content-Type": "application/rss+xml; charset=utf-8",
+  };
+  if (etagValue) cacheHeaders["ETag"] = etagValue;
+  if (lastModified) cacheHeaders["Last-Modified"] = lastModified;
+
+  if (c.req.method === "HEAD") {
+    return c.body(null, 200, cacheHeaders);
+  }
+
   const episodes = await storage.getAllEpisodeMetas(slug);
   const xml = await generateFeed(slug, config, episodes, baseUrl);
 
-  return c.body(xml, 200, { "Content-Type": "application/rss+xml; charset=utf-8" });
+  return c.body(xml, 200, cacheHeaders);
 });
 
-// GET /artwork.jpg — podcast-level artwork
-app.get("/artwork.jpg", async (c) => {
+// GET|HEAD /artwork.jpg — podcast-level artwork
+app.on(["GET", "HEAD"], "/artwork.jpg", async (c) => {
   const slug = c.get("podcastSlug");
   const artPath = storage.podcastArtworkPath(slug);
 
   try {
     const stats = await stat(artPath);
-    const stream = createReadStream(artPath);
-    const readable = new ReadableStream({
-      start(controller) {
-        stream.on("data", (chunk: Buffer) => controller.enqueue(chunk));
-        stream.on("end", () => controller.close());
-        stream.on("error", (err) => controller.error(err));
-      },
-    });
-
-    return new Response(readable, {
-      headers: {
+    if (c.req.method === "HEAD") {
+      return c.body(null, 200, {
         "Cache-Control": "public, max-age=86400",
         "Content-Length": stats.size.toString(),
         "Content-Type": "image/jpeg",
-      },
-    });
+      });
+    }
+    return streamFile(artPath, stats, "image/jpeg", { "Cache-Control": "public, max-age=86400" });
   } catch {
     return c.notFound();
   }
 });
 
-// GET /episode/:id/artwork.jpg — episode artwork
-app.get("/episode/:id/artwork.jpg", async (c) => {
+// GET|HEAD /episode/:id/artwork.jpg — episode artwork
+app.on(["GET", "HEAD"], "/episode/:id/artwork.jpg", async (c) => {
   const slug = c.get("podcastSlug");
   const episodeId = await resolveEpisodeId(slug, c.req.param("id"));
   if (!episodeId) return c.notFound();
@@ -116,29 +173,21 @@ app.get("/episode/:id/artwork.jpg", async (c) => {
   const artPath = storage.artworkPath(slug, episodeId);
   try {
     const stats = await stat(artPath);
-    const stream = createReadStream(artPath);
-    const readable = new ReadableStream({
-      start(controller) {
-        stream.on("data", (chunk: Buffer) => controller.enqueue(chunk));
-        stream.on("end", () => controller.close());
-        stream.on("error", (err) => controller.error(err));
-      },
-    });
-
-    return new Response(readable, {
-      headers: {
+    if (c.req.method === "HEAD") {
+      return c.body(null, 200, {
         "Cache-Control": "public, max-age=86400",
         "Content-Length": stats.size.toString(),
         "Content-Type": "image/jpeg",
-      },
-    });
+      });
+    }
+    return streamFile(artPath, stats, "image/jpeg", { "Cache-Control": "public, max-age=86400" });
   } catch {
     return c.notFound();
   }
 });
 
-// GET /episode/:id
-app.get("/episode/:id", async (c) => {
+// GET|HEAD /episode/:id
+app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
   const slug = c.get("podcastSlug");
   const idParam = c.req.param("id");
 
@@ -159,23 +208,56 @@ app.get("/episode/:id", async (c) => {
 
     const mp3Path = storage.episodeMp3Path(slug, episodeId);
     const stats = await stat(mp3Path);
+    const totalSize = stats.size;
 
-    const stream = createReadStream(mp3Path);
-    const readableStream = new ReadableStream({
-      start(controller) {
-        stream.on("data", (chunk: Buffer) => controller.enqueue(chunk));
-        stream.on("end", () => controller.close());
-        stream.on("error", (err) => controller.error(err));
-      },
-    });
-
-    return new Response(readableStream, {
-      headers: {
-        "Content-Length": stats.size.toString(),
+    if (c.req.method === "HEAD") {
+      return c.body(null, 200, {
+        "Accept-Ranges": "bytes",
+        "Content-Length": totalSize.toString(),
         "Content-Type": "audio/mpeg",
-      },
-      status: 200,
-    });
+      });
+    }
+
+    const rangeHeader = c.req.header("Range");
+    if (rangeHeader) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader);
+      if (!match) {
+        return c.body(null, 416, {
+          "Content-Range": `bytes */${totalSize}`,
+        });
+      }
+
+      const start = parseInt(match[1]!, 10);
+      const end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+
+      if (start >= totalSize || end >= totalSize || start > end) {
+        return c.body(null, 416, {
+          "Content-Range": `bytes */${totalSize}`,
+        });
+      }
+
+      const chunkSize = end - start + 1;
+      const stream = createReadStream(mp3Path, { end, start });
+      const readable = new ReadableStream({
+        start(controller) {
+          stream.on("data", (chunk: Buffer) => controller.enqueue(chunk));
+          stream.on("end", () => controller.close());
+          stream.on("error", (err) => controller.error(err));
+        },
+      });
+
+      return new Response(readable, {
+        headers: {
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunkSize.toString(),
+          "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+          "Content-Type": "audio/mpeg",
+        },
+        status: 206,
+      });
+    }
+
+    return streamFile(mp3Path, stats, "audio/mpeg", { "Accept-Ranges": "bytes" });
   }
 
   // JSON metadata

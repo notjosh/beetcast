@@ -371,6 +371,7 @@ app.delete("/podcasts/:podcast/episodes/:id/files", async (c) => {
         const entry = index.episodes.find((e) => e.id === id);
         if (entry) {
           entry.merged = false;
+          index.lastUpdated = new Date().toISOString();
           await storage.writeEpisodeIndex(slug, index);
         }
       }

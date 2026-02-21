@@ -26,7 +26,10 @@ if (adminUser && adminPass) {
   app.use("*", async (c, next) => {
     if (c.req.path === "/health" || c.req.path === "/") return next();
     // Public podcast routes: feed, artwork, episode content
-    if (c.req.method === "GET" && /^\/[^/]+\/(feed\.xml|artwork\.jpg|episode\/)/.test(c.req.path)) {
+    if (
+      (c.req.method === "GET" || c.req.method === "HEAD") &&
+      /^\/[^/]+\/(feed\.xml|artwork\.jpg|episode\/)/.test(c.req.path)
+    ) {
       return next();
     }
     return auth(c, next);
