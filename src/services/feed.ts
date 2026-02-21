@@ -50,7 +50,7 @@ export async function generateFeed(
   for (const ep of feedEpisodes) {
     const totalDurationMs = ep.tracks.reduce((sum, t) => sum + t.durationMs, 0);
     const durationSeconds = Math.round(totalDurationMs / 1000);
-    const episodeSlug = ep.episodeNumber ?? ep.id;
+    const episodeSlug = ep.id;
     const enclosureUrl = `${baseUrl}/${podcastSlug}/episode/${episodeSlug}.mp3`;
     const episodeImageUrl = ep.artworkFilename
       ? `${baseUrl}/${podcastSlug}/episode/${episodeSlug}/artwork.jpg`

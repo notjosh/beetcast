@@ -1,20 +1,10 @@
-import {
-  BuildResponseSchema,
-  DiscoverResponseSchema,
-  type PodcastDetailResponse,
-  PodcastDetailResponseSchema,
-} from "@shared/schemas/admin-api";
-import {
-  SyncErrorSchema,
-  type SyncProgress,
-  SyncProgressSchema,
-  type SyncResult,
-  SyncResultSchema,
-} from "@shared/schemas/sync-events";
+import type { SyncProgress } from "@shared/schemas/sync-events";
+
+import { type PodcastDetailResponse, PodcastDetailResponseSchema } from "@shared/schemas/admin-api";
 import { ArrowLeft, Hammer, RefreshCw, Rss, Search } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import useSWR from "swr";
-import useSWRMutation from "swr/mutation";
 
 import { Layout } from "@/components/layout";
 import { Badge } from "@/components/ui/badge";
@@ -28,14 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { NotFoundError, zodFetcher, zodMutator } from "@/lib/api";
-import { useSSEAction } from "@/lib/use-sse-action";
-
-const syncSchemas = {
-  error: SyncErrorSchema,
-  progress: SyncProgressSchema,
-  result: SyncResultSchema,
-};
+import { NotFoundError, zodFetcher } from "@/lib/api";
+import { useOperations } from "@/lib/operations-context";
+import { useOperation } from "@/lib/use-operation";
 
 export function EpisodeList() {
   const { podcast } = useParams<{ podcast: string }>();
@@ -44,36 +29,41 @@ export function EpisodeList() {
     zodFetcher(PodcastDetailResponseSchema),
   );
 
-  const discover = useSWRMutation(
-    `/api/admin/podcasts/${podcast}/discover`,
-    zodMutator(DiscoverResponseSchema),
-  );
+  const { submitTask } = useOperations();
+  const discoverOp = useOperation("discover", podcast!);
+  const syncOp = useOperation("sync", podcast!);
 
-  const sync = useSSEAction<SyncProgress, SyncResult>(
-    `/api/admin/podcasts/${podcast}/sync`,
-    syncSchemas,
-  );
+  // Revalidate when discover or sync complete
+  const prevDiscoverStatus = useRef(discoverOp.task?.status);
+  const prevSyncStatus = useRef(syncOp.task?.status);
 
-  const build = useSWRMutation(
-    `/api/admin/podcasts/${podcast}/build`,
-    zodMutator(BuildResponseSchema),
-  );
+  useEffect(() => {
+    const wasActive =
+      prevDiscoverStatus.current === "running" || prevDiscoverStatus.current === "queued";
+    const isDone = discoverOp.task?.status === "completed" || discoverOp.task?.status === "failed";
+    if (wasActive && isDone) mutate();
+    prevDiscoverStatus.current = discoverOp.task?.status;
+  }, [discoverOp.task?.status, mutate]);
 
-  const busy = discover.isMutating || sync.running || build.isMutating;
+  useEffect(() => {
+    const wasActive = prevSyncStatus.current === "running" || prevSyncStatus.current === "queued";
+    const isDone = syncOp.task?.status === "completed" || syncOp.task?.status === "failed";
+    if (wasActive && isDone) mutate();
+    prevSyncStatus.current = syncOp.task?.status;
+  }, [syncOp.task?.status, mutate]);
 
-  const handleDiscover = async () => {
-    await discover.trigger();
-    await mutate();
+  const busy = discoverOp.isActive || syncOp.isActive;
+
+  const handleDiscover = () => {
+    submitTask(`/api/admin/podcasts/${podcast}/discover`);
   };
 
-  const handleSync = async () => {
-    await sync.execute();
-    await mutate();
+  const handleSync = () => {
+    submitTask(`/api/admin/podcasts/${podcast}/sync`);
   };
 
-  const handleBuild = async () => {
-    await build.trigger();
-    await mutate();
+  const handleBuild = () => {
+    submitTask(`/api/admin/podcasts/${podcast}/build`);
   };
 
   if (isLoading) {
@@ -135,16 +125,16 @@ export function EpisodeList() {
         </div>
         <div className="flex gap-2">
           <Button disabled={busy} onClick={handleDiscover} size="sm" variant="outline">
-            <Search className={`h-4 w-4 ${discover.isMutating ? "animate-pulse" : ""}`} />
-            {discover.isMutating ? "Discovering..." : "Discover"}
+            <Search className={`h-4 w-4 ${discoverOp.isActive ? "animate-pulse" : ""}`} />
+            {discoverOp.isActive ? "Discovering..." : "Discover"}
           </Button>
           <Button disabled={busy} onClick={handleSync} size="sm" variant="outline">
-            <RefreshCw className={`h-4 w-4 ${sync.running ? "animate-spin" : ""}`} />
-            {sync.running ? "Syncing..." : "Sync Episodes"}
+            <RefreshCw className={`h-4 w-4 ${syncOp.isActive ? "animate-spin" : ""}`} />
+            {syncOp.isActive ? "Syncing..." : "Sync Episodes"}
           </Button>
           <Button disabled={busy} onClick={handleBuild} size="sm" variant="outline">
             <Hammer className="h-4 w-4" />
-            {build.isMutating ? "Building..." : "Build All"}
+            Build All
           </Button>
           <Button
             onClick={() => window.open(`/${podcast}/feed.xml`, "_blank")}
@@ -157,34 +147,14 @@ export function EpisodeList() {
         </div>
       </div>
 
-      {sync.running && sync.progress && <SyncProgressBar progress={sync.progress} />}
-
-      {discover.data && !discover.isMutating && (
-        <Card className="mb-4">
-          <CardContent className="py-3">
-            <p className="text-sm">
-              Discovery complete: {discover.data.discovered} new, {discover.data.totalFound} total
-              on Bandcamp
-            </p>
-          </CardContent>
-        </Card>
+      {syncOp.isRunning && syncOp.progress && (
+        <SyncProgressBar progress={syncOp.progress as unknown as SyncProgress} />
       )}
 
-      {sync.result && !sync.running && (
-        <Card className="mb-4">
-          <CardContent className="py-3">
-            <p className="text-sm">
-              Sync complete: {sync.result.synced} synced, {sync.result.skipped} skipped
-              {sync.result.errored > 0 ? `, ${sync.result.errored} failed` : ""}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {sync.error && !sync.running && (
+      {syncOp.error && !syncOp.isActive && (
         <Card className="mb-4 border-destructive">
           <CardContent className="py-3">
-            <p className="text-sm text-destructive">Sync failed: {sync.error}</p>
+            <p className="text-sm text-destructive">Sync failed: {syncOp.error}</p>
           </CardContent>
         </Card>
       )}

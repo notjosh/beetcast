@@ -6,6 +6,7 @@ import { logger } from "hono/logger";
 import pino from "pino";
 
 import { adminRoutes } from "./routes/admin.js";
+import { operationsRoutes } from "./routes/operations.js";
 import { podcastRoutes } from "./routes/podcast.js";
 
 const log = pino({ name: "server" });
@@ -35,6 +36,7 @@ if (adminUser && adminPass) {
 // Admin API (consumed by the frontend on its own port)
 const adminEnabled = process.env["ADMIN_ENABLED"] !== "false";
 if (adminEnabled) {
+  app.route("/api/admin/operations", operationsRoutes);
   app.route("/api/admin", adminRoutes);
 
   // Serve frontend static assets in production

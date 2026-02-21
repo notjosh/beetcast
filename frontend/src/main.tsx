@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 import "./globals.css";
+import { OperationsProvider } from "./lib/operations-context";
 import { Dashboard } from "./pages/dashboard";
 import { EpisodeDetail } from "./pages/episode-detail";
 import { EpisodeList } from "./pages/episode-list";
@@ -13,11 +14,13 @@ if (!root) throw new Error("Missing root element");
 createRoot(root).render(
   <StrictMode>
     <BrowserRouter basename="/admin">
-      <Routes>
-        <Route element={<Dashboard />} path="/" />
-        <Route element={<EpisodeList />} path="/:podcast" />
-        <Route element={<EpisodeDetail />} path="/:podcast/episode/:id" />
-      </Routes>
+      <OperationsProvider>
+        <Routes>
+          <Route element={<Dashboard />} path="/" />
+          <Route element={<EpisodeList />} path="/:podcast" />
+          <Route element={<EpisodeDetail />} path="/:podcast/episode/:id" />
+        </Routes>
+      </OperationsProvider>
     </BrowserRouter>
   </StrictMode>,
 );

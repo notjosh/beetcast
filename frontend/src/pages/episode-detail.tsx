@@ -1,3 +1,5 @@
+import type { BuildProgress } from "@shared/schemas/build-events";
+
 import {
   type ClearFilesResponse,
   ClearFilesResponseSchema,
@@ -6,14 +8,7 @@ import {
   type EpisodePatchRequest,
   type EpisodePatchResponse,
   EpisodePatchResponseSchema,
-  EpisodeSyncResponseSchema,
 } from "@shared/schemas/admin-api";
-import {
-  BuildErrorSchema,
-  type BuildProgress,
-  BuildProgressSchema,
-  BuildResultSchema,
-} from "@shared/schemas/build-events";
 import {
   ArrowLeft,
   Check,
@@ -29,7 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import useSWR from "swr";
 import useSWRMutation from "swr/mutation";
@@ -58,7 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { zodFetcher, zodMutator } from "@/lib/api";
-import { useSSEAction } from "@/lib/use-sse-action";
+import { useOperation } from "@/lib/use-operation";
 
 export function EpisodeDetail() {
   const { id, podcast } = useParams<{ id: string; podcast: string }>();
@@ -71,15 +66,6 @@ export function EpisodeDetail() {
     zodFetcher(EpisodeDetailSchema),
   );
 
-  const {
-    error: syncError,
-    isMutating: syncing,
-    trigger: triggerSync,
-  } = useSWRMutation(
-    `/api/admin/podcasts/${podcast}/episodes/${id}/sync`,
-    zodMutator(EpisodeSyncResponseSchema),
-  );
-
   const { isMutating: patching, trigger: triggerPatch } = useSWRMutation(
     `/api/admin/podcasts/${podcast}/episodes/${id}`,
     zodMutator<EpisodePatchResponse, EpisodePatchRequest>(EpisodePatchResponseSchema, "PATCH"),
@@ -90,29 +76,47 @@ export function EpisodeDetail() {
     zodMutator<ClearFilesResponse>(ClearFilesResponseSchema, "DELETE"),
   );
 
-  const downloadSSE = useSSEAction<BuildProgress, { message: string }>(
-    `/api/admin/podcasts/${podcast}/episodes/${id}/download`,
-    { error: BuildErrorSchema, progress: BuildProgressSchema, result: BuildResultSchema },
-  );
+  const syncOp = useOperation("sync-single", podcast!, id);
+  const downloadOp = useOperation("download", podcast!, id);
+  const mergeOp = useOperation("merge", podcast!, id);
 
-  const mergeSSE = useSSEAction<BuildProgress, { message: string }>(
-    `/api/admin/podcasts/${podcast}/episodes/${id}/merge`,
-    { error: BuildErrorSchema, progress: BuildProgressSchema, result: BuildResultSchema },
-  );
+  // Revalidate data when operations complete
+  const prevSyncStatus = useRef(syncOp.task?.status);
+  const prevDownloadStatus = useRef(downloadOp.task?.status);
+  const prevMergeStatus = useRef(mergeOp.task?.status);
 
-  const handleSync = async () => {
-    await triggerSync();
-    await mutate();
+  useEffect(() => {
+    const wasActive = prevSyncStatus.current === "running" || prevSyncStatus.current === "queued";
+    const isDone = syncOp.task?.status === "completed" || syncOp.task?.status === "failed";
+    if (wasActive && isDone) mutate();
+    prevSyncStatus.current = syncOp.task?.status;
+  }, [syncOp.task?.status, mutate]);
+
+  useEffect(() => {
+    const wasActive =
+      prevDownloadStatus.current === "running" || prevDownloadStatus.current === "queued";
+    const isDone = downloadOp.task?.status === "completed" || downloadOp.task?.status === "failed";
+    if (wasActive && isDone) mutate();
+    prevDownloadStatus.current = downloadOp.task?.status;
+  }, [downloadOp.task?.status, mutate]);
+
+  useEffect(() => {
+    const wasActive = prevMergeStatus.current === "running" || prevMergeStatus.current === "queued";
+    const isDone = mergeOp.task?.status === "completed" || mergeOp.task?.status === "failed";
+    if (wasActive && isDone) mutate();
+    prevMergeStatus.current = mergeOp.task?.status;
+  }, [mergeOp.task?.status, mutate]);
+
+  const handleSync = () => {
+    syncOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/sync`);
   };
 
-  const handleDownload = async () => {
-    await downloadSSE.execute();
-    await mutate();
+  const handleDownload = () => {
+    downloadOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/download`);
   };
 
-  const handleMerge = async () => {
-    await mergeSSE.execute();
-    await mutate();
+  const handleMerge = () => {
+    mergeOp.submit(`/api/admin/podcasts/${podcast}/episodes/${id}/merge`);
   };
 
   const handleClear = async () => {
@@ -169,12 +173,10 @@ export function EpisodeDetail() {
         <div className="lg:col-span-2 space-y-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">{episode.title}</h1>
-            {syncError && (
+            {syncOp.error && (
               <Card className="mt-3 border-destructive">
                 <CardContent className="py-3">
-                  <p className="text-sm text-destructive">
-                    {syncError instanceof Error ? syncError.message : String(syncError)}
-                  </p>
+                  <p className="text-sm text-destructive">{syncOp.error}</p>
                 </CardContent>
               </Card>
             )}
@@ -292,16 +294,16 @@ export function EpisodeDetail() {
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               <Button
-                disabled={syncing || patching}
+                disabled={syncOp.isActive || patching}
                 onClick={handleSync}
                 size="sm"
                 variant="outline"
               >
-                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-                {syncing ? "Syncing..." : "Sync"}
+                <RefreshCw className={`h-4 w-4 ${syncOp.isActive ? "animate-spin" : ""}`} />
+                {syncOp.isActive ? "Syncing..." : "Sync"}
               </Button>
               <Button
-                disabled={isPending || patching || syncing}
+                disabled={isPending || patching || syncOp.isActive}
                 onClick={handleToggleSkip}
                 size="sm"
                 variant="outline"
@@ -318,14 +320,14 @@ export function EpisodeDetail() {
               </Button>
               <Button
                 disabled={
-                  isPending || episode.skipped || allTracksDownloaded || downloadSSE.running
+                  isPending || episode.skipped || allTracksDownloaded || downloadOp.isActive
                 }
                 onClick={handleDownload}
                 size="sm"
                 variant="outline"
               >
-                <Download className={`h-4 w-4 ${downloadSSE.running ? "animate-pulse" : ""}`} />
-                {downloadSSE.running ? "Downloading..." : "Download"}
+                <Download className={`h-4 w-4 ${downloadOp.isActive ? "animate-pulse" : ""}`} />
+                {downloadOp.isActive ? "Downloading..." : "Download"}
               </Button>
               <Button
                 disabled={
@@ -333,20 +335,20 @@ export function EpisodeDetail() {
                   episode.skipped ||
                   episode.merged ||
                   !allTracksDownloaded ||
-                  mergeSSE.running ||
-                  downloadSSE.running
+                  mergeOp.isActive ||
+                  downloadOp.isActive
                 }
                 onClick={handleMerge}
                 size="sm"
                 variant="outline"
               >
-                <Merge className={`h-4 w-4 ${mergeSSE.running ? "animate-pulse" : ""}`} />
-                {mergeSSE.running ? "Merging..." : "Merge"}
+                <Merge className={`h-4 w-4 ${mergeOp.isActive ? "animate-pulse" : ""}`} />
+                {mergeOp.isActive ? "Merging..." : "Merge"}
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
-                    disabled={isPending || clearing || downloadSSE.running || mergeSSE.running}
+                    disabled={isPending || clearing || downloadOp.isActive || mergeOp.isActive}
                     size="sm"
                     variant="outline"
                   >
@@ -369,35 +371,28 @@ export function EpisodeDetail() {
                 </AlertDialogContent>
               </AlertDialog>
             </CardContent>
-            {(downloadSSE.running ||
-              downloadSSE.progress ||
-              downloadSSE.error ||
-              downloadSSE.result) && (
+            {downloadOp.isActive && downloadOp.progress && (
               <CardContent className="pt-0">
-                {downloadSSE.error && (
-                  <p className="text-sm text-destructive">{downloadSSE.error}</p>
-                )}
-                {downloadSSE.progress && !downloadSSE.result && !downloadSSE.error && (
-                  <p className="text-sm text-muted-foreground">
-                    {formatDownloadProgress(downloadSSE.progress)}
-                  </p>
-                )}
-                {downloadSSE.result && (
-                  <p className="text-sm text-green-600">{downloadSSE.result.message}</p>
-                )}
+                <p className="text-sm text-muted-foreground">
+                  {formatDownloadProgress(downloadOp.progress as unknown as BuildProgress)}
+                </p>
               </CardContent>
             )}
-            {(mergeSSE.running || mergeSSE.progress || mergeSSE.error || mergeSSE.result) && (
+            {downloadOp.error && (
               <CardContent className="pt-0">
-                {mergeSSE.error && <p className="text-sm text-destructive">{mergeSSE.error}</p>}
-                {mergeSSE.progress && !mergeSSE.result && !mergeSSE.error && (
-                  <p className="text-sm text-muted-foreground">
-                    {formatMergeProgress(mergeSSE.progress)}
-                  </p>
-                )}
-                {mergeSSE.result && (
-                  <p className="text-sm text-green-600">{mergeSSE.result.message}</p>
-                )}
+                <p className="text-sm text-destructive">{downloadOp.error}</p>
+              </CardContent>
+            )}
+            {mergeOp.isActive && mergeOp.progress && (
+              <CardContent className="pt-0">
+                <p className="text-sm text-muted-foreground">
+                  {formatMergeProgress(mergeOp.progress as unknown as BuildProgress)}
+                </p>
+              </CardContent>
+            )}
+            {mergeOp.error && (
+              <CardContent className="pt-0">
+                <p className="text-sm text-destructive">{mergeOp.error}</p>
               </CardContent>
             )}
           </Card>

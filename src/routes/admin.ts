@@ -1,6 +1,4 @@
 import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
-import pino from "pino";
 
 import { EpisodePatchRequestSchema } from "../../shared/schemas/admin-api.js";
 import { getAllConfigs, getConfigBySlug } from "../config.js";
@@ -13,15 +11,9 @@ import {
   isMergeLocked,
   mergeEpisodeMp3,
 } from "../services/audio.js";
-import {
-  discoverEpisodes,
-  type SyncProgress,
-  syncSingleEpisode,
-  syncUnsyncedEpisodes,
-} from "../services/bandcamp.js";
+import { discoverEpisodes, syncSingleEpisode, syncUnsyncedEpisodes } from "../services/bandcamp.js";
+import { operationQueue } from "../services/operation-queue.js";
 import * as storage from "../services/storage.js";
-
-const log = pino({ name: "routes:admin" });
 
 const app = new Hono();
 
@@ -227,77 +219,62 @@ app.get("/podcasts/:podcast/episodes/:id/artwork", async (c) => {
   }
 });
 
-// POST /api/admin/podcasts/:podcast/discover — fetch discography, update index
-app.post("/podcasts/:podcast/discover", async (c) => {
+// POST /api/admin/podcasts/:podcast/discover — submit discover task
+app.post("/podcasts/:podcast/discover", (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
   if (!config) return c.notFound();
 
-  log.info({ slug }, "Starting discovery via admin API");
+  const taskId = operationQueue.submit(
+    "discover",
+    { podcastSlug: slug, podcastTitle: config.title },
+    async () => {
+      await discoverEpisodes(slug, config);
+    },
+  );
 
-  try {
-    const result = await discoverEpisodes(slug, config);
-    return c.json({
-      discovered: result.discovered,
-      message: "Discovery complete",
-      totalFound: result.totalFound,
-    });
-  } catch (err) {
-    log.error({ err, slug }, "Discovery failed");
-    return c.json({ message: String(err) }, 500);
-  }
+  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
 });
 
-// POST /api/admin/podcasts/:podcast/sync — sync unsynced episodes (SSE stream)
-app.post("/podcasts/:podcast/sync", async (c) => {
+// POST /api/admin/podcasts/:podcast/sync — submit sync task
+app.post("/podcasts/:podcast/sync", (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
   if (!config) return c.notFound();
 
-  log.info({ slug }, "Starting episode sync via admin API");
-
-  return streamSSE(c, async (stream) => {
-    const onProgress = async (progress: SyncProgress) => {
-      await stream.writeSSE({ data: JSON.stringify(progress), event: "progress" });
-    };
-
-    try {
-      const result = await syncUnsyncedEpisodes(slug, onProgress);
-      await stream.writeSSE({
-        data: JSON.stringify({
-          discovered: 0,
-          errored: result.errored,
-          message: "Sync complete",
-          skipped: result.skippedCount,
-          synced: result.synced,
-          totalFound: result.total,
-        }),
-        event: "complete",
+  const taskId = operationQueue.submit(
+    "sync",
+    { podcastSlug: slug, podcastTitle: config.title },
+    async (onProgress) => {
+      await syncUnsyncedEpisodes(slug, (progress) => {
+        onProgress(progress as unknown as Record<string, unknown>);
       });
-    } catch (err) {
-      log.error({ err, slug }, "Sync failed");
-      await stream.writeSSE({
-        data: JSON.stringify({ message: String(err) }),
-        event: "error",
-      });
-    }
-  });
+    },
+  );
+
+  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
 });
 
-// POST /api/admin/podcasts/:podcast/episodes/:id/sync — sync a single episode
+// POST /api/admin/podcasts/:podcast/episodes/:id/sync — submit single sync task
 app.post("/podcasts/:podcast/episodes/:id/sync", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
   if (!config) return c.notFound();
 
-  try {
-    const meta = await syncSingleEpisode(slug, id);
-    return c.json({ episode: meta, message: "Episode synced" });
-  } catch (err) {
-    log.error({ episodeId: id, err, slug }, "Failed to sync episode");
-    return c.json({ message: String(err) }, 500);
-  }
+  // Look up episode title from the index
+  const index = await storage.readEpisodeIndex(slug);
+  const entry = index?.episodes.find((e) => e.id === id);
+
+  const taskId = operationQueue.submit(
+    "sync-single",
+    { episodeId: id, episodeTitle: entry?.title, podcastSlug: slug, podcastTitle: config.title },
+    async () => {
+      await syncSingleEpisode(slug, id);
+    },
+  );
+
+  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
 });
 
 // PATCH /api/admin/podcasts/:podcast/episodes/:id — update episode metadata
@@ -403,63 +380,53 @@ app.delete("/podcasts/:podcast/episodes/:id/files", async (c) => {
   return c.json({ mergedDeleted, message: "Files cleared", tracksDeleted });
 });
 
-// POST /api/admin/podcasts/:podcast/episodes/:id/download — download missing tracks (SSE stream)
+// POST /api/admin/podcasts/:podcast/episodes/:id/download — submit download task
 app.post("/podcasts/:podcast/episodes/:id/download", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
   if (!config) return c.notFound();
 
-  log.info({ episodeId: id, slug }, "Starting track download via admin API");
+  const index = await storage.readEpisodeIndex(slug);
+  const entry = index?.episodes.find((e) => e.id === id);
 
-  return streamSSE(c, async (stream) => {
-    try {
-      await downloadEpisodeTracks(slug, id, async (progress) => {
-        await stream.writeSSE({ data: JSON.stringify(progress), event: "progress" });
+  const taskId = operationQueue.submit(
+    "download",
+    { episodeId: id, episodeTitle: entry?.title, podcastSlug: slug, podcastTitle: config.title },
+    async (onProgress) => {
+      await downloadEpisodeTracks(slug, id, (progress) => {
+        onProgress(progress as unknown as Record<string, unknown>);
       });
-      await stream.writeSSE({
-        data: JSON.stringify({ message: "Download complete" }),
-        event: "complete",
-      });
-    } catch (err) {
-      log.error({ episodeId: id, err, slug }, "Download failed");
-      await stream.writeSSE({
-        data: JSON.stringify({ message: String(err) }),
-        event: "error",
-      });
-    }
-  });
+    },
+  );
+
+  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
 });
 
-// POST /api/admin/podcasts/:podcast/episodes/:id/merge — merge tracks into episode MP3 (SSE stream)
+// POST /api/admin/podcasts/:podcast/episodes/:id/merge — submit merge task
 app.post("/podcasts/:podcast/episodes/:id/merge", async (c) => {
   const slug = c.req.param("podcast");
   const id = c.req.param("id");
   const config = getConfigBySlug(slug);
   if (!config) return c.notFound();
 
-  log.info({ episodeId: id, slug }, "Starting episode merge via admin API");
+  const index = await storage.readEpisodeIndex(slug);
+  const entry = index?.episodes.find((e) => e.id === id);
 
-  return streamSSE(c, async (stream) => {
-    try {
-      await mergeEpisodeMp3(slug, id, config, async (progress) => {
-        await stream.writeSSE({ data: JSON.stringify(progress), event: "progress" });
+  const taskId = operationQueue.submit(
+    "merge",
+    { episodeId: id, episodeTitle: entry?.title, podcastSlug: slug, podcastTitle: config.title },
+    async (onProgress) => {
+      await mergeEpisodeMp3(slug, id, config, (progress) => {
+        onProgress(progress as unknown as Record<string, unknown>);
       });
-      await stream.writeSSE({
-        data: JSON.stringify({ message: "Merge complete" }),
-        event: "complete",
-      });
-    } catch (err) {
-      log.error({ episodeId: id, err, slug }, "Merge failed");
-      await stream.writeSSE({
-        data: JSON.stringify({ message: String(err) }),
-        event: "error",
-      });
-    }
-  });
+    },
+  );
+
+  return c.json({ status: operationQueue.getTask(taskId)!.status, taskId });
 });
 
-// POST /api/admin/podcasts/:podcast/build — build all unmerged MP3s
+// POST /api/admin/podcasts/:podcast/build — submit build tasks for all unmerged episodes
 app.post("/podcasts/:podcast/build", async (c) => {
   const slug = c.req.param("podcast");
   const config = getConfigBySlug(slug);
@@ -471,20 +438,28 @@ app.post("/podcasts/:podcast/build", async (c) => {
   }
 
   const unmerged = index.episodes.filter((e) => e.synced && !e.merged && !e.skipped);
-  let built = 0;
-  let failed = 0;
+  const taskIds: string[] = [];
 
   for (const entry of unmerged) {
-    try {
-      await buildEpisodeMp3(slug, entry.id, config);
-      built++;
-    } catch (err) {
-      log.error({ episodeId: entry.id, err }, "Failed to build episode");
-      failed++;
-    }
+    // Submit each as a "merge" task that uses buildEpisodeMp3 (downloads + merges)
+    const taskId = operationQueue.submit(
+      "merge",
+      {
+        episodeId: entry.id,
+        episodeTitle: entry.title,
+        podcastSlug: slug,
+        podcastTitle: config.title,
+      },
+      async (onProgress) => {
+        await buildEpisodeMp3(slug, entry.id, config, (progress) => {
+          onProgress(progress as unknown as Record<string, unknown>);
+        });
+      },
+    );
+    taskIds.push(taskId);
   }
 
-  return c.json({ built, failed, message: "Build complete" });
+  return c.json({ message: `Submitted ${taskIds.length} build tasks`, taskIds });
 });
 
 export { app as adminRoutes };
