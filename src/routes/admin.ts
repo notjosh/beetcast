@@ -67,7 +67,17 @@ app.get("/podcasts/:podcast", async (c) => {
     const meta = await storage.readEpisodeMeta(slug, entry.id);
     const fileSize = entry.merged ? await getEpisodeFileSize(slug, entry.id) : null;
 
+    // Check if all tracks have been downloaded (for synced, non-merged, non-skipped episodes)
+    let allTracksDownloaded = false;
+    if (entry.synced && !entry.merged && !entry.skipped && meta && meta.tracks.length > 0) {
+      const sizes = await Promise.all(
+        meta.tracks.map((t) => storage.getTrackFileSize(slug, entry.id, t.filename)),
+      );
+      allTracksDownloaded = sizes.every((s) => s !== null);
+    }
+
     episodes.push({
+      allTracksDownloaded,
       episodeNumber: entry.episodeNumber,
       episodePart: entry.episodePart,
       fileSize,

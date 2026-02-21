@@ -12,7 +12,7 @@ if (!root) throw new Error("Missing root element");
 
 createRoot(root).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/admin">
       <Routes>
         <Route element={<Dashboard />} path="/" />
         <Route element={<EpisodeList />} path="/:podcast" />

@@ -23,6 +23,7 @@ export type PodcastsResponse = z.infer<typeof PodcastsResponseSchema>;
 // --- Episode list ---
 
 export const EpisodeEntrySchema = z.object({
+  allTracksDownloaded: z.boolean(),
   episodeNumber: z.number().optional(),
   episodePart: z.string().optional(),
   fileSize: z.number().nullable(),

@@ -23,7 +23,7 @@ const adminPass = process.env["ADMIN_PASSWORD"];
 if (adminUser && adminPass) {
   const auth = basicAuth({ password: adminPass, username: adminUser });
   app.use("*", async (c, next) => {
-    if (c.req.path === "/health") return next();
+    if (c.req.path === "/health" || c.req.path === "/") return next();
     // Public podcast routes: feed, artwork, episode content
     if (c.req.method === "GET" && /^\/[^/]+\/(feed\.xml|artwork\.jpg|episode\/)/.test(c.req.path)) {
       return next();
@@ -40,15 +40,17 @@ if (adminEnabled) {
   // Serve frontend static assets in production
   app.use("/assets/*", serveStatic({ root: "dist/frontend" }));
   app.use("/favicon.ico", serveStatic({ path: "favicon.ico", root: "dist/frontend" }));
+
+  // SPA routes — serve admin.html for admin UI paths
+  app.get("/admin", serveStatic({ path: "admin.html", root: "dist/frontend" }));
+  app.get("/admin/*", serveStatic({ path: "admin.html", root: "dist/frontend" }));
 }
+
+// Placeholder landing page
+app.get("/", serveStatic({ path: "index.html", root: "dist/frontend" }));
 
 // Podcast routes
 app.route("/:podcast", podcastRoutes);
-
-// SPA fallback — serve index.html for unmatched routes (admin UI paths)
-if (adminEnabled) {
-  app.get("*", serveStatic({ path: "index.html", root: "dist/frontend" }));
-}
 
 const port = parseInt(process.env["PORT"] ?? "3000", 10);
 const baseUrl = process.env["BASE_URL"] ?? `http://localhost:${port}`;

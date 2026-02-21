@@ -261,6 +261,7 @@ function statusBadge(ep: PodcastDetailResponse["episodes"][number]) {
   if (!ep.synced) return <Badge variant="outline">Pending</Badge>;
   if (ep.skipped) return <Badge variant="destructive">Skipped</Badge>;
   if (ep.merged) return <Badge variant="success">Cached</Badge>;
+  if (ep.allTracksDownloaded) return <Badge variant="secondary">Downloaded</Badge>;
   return <Badge variant="warning">Synced</Badge>;
 }
 
