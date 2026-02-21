@@ -125,3 +125,11 @@ export const BuildResponseSchema = z.object({
 });
 
 export type BuildResponse = z.infer<typeof BuildResponseSchema>;
+
+export const ClearFilesResponseSchema = z.object({
+  mergedDeleted: z.boolean(),
+  message: z.string(),
+  tracksDeleted: z.number(),
+});
+
+export type ClearFilesResponse = z.infer<typeof ClearFilesResponseSchema>;

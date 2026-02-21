@@ -1,4 +1,13 @@
-import { access, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
@@ -12,6 +21,34 @@ const DATA_DIR = resolve(process.cwd(), "data");
 
 export function artworkPath(podcastSlug: string, episodeId: string): string {
   return resolve(episodeDir(podcastSlug, episodeId), "artwork.jpg");
+}
+
+/** Delete the merged episode MP3. Returns true if the file existed. */
+export async function clearMergedMp3(podcastSlug: string, episodeId: string): Promise<boolean> {
+  try {
+    await unlink(episodeMp3Path(podcastSlug, episodeId));
+    return true;
+  } catch (err) {
+    if (isNodeError(err) && err.code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+/** Delete all downloaded track files for an episode. Returns count of deleted files. */
+export async function clearTrackFiles(podcastSlug: string, episodeId: string): Promise<number> {
+  const dir = tracksDir(podcastSlug, episodeId);
+  let deleted = 0;
+  try {
+    const entries = await readdir(dir);
+    for (const entry of entries) {
+      await unlink(resolve(dir, entry));
+      deleted++;
+    }
+  } catch (err) {
+    if (isNodeError(err) && err.code === "ENOENT") return 0;
+    throw err;
+  }
+  return deleted;
 }
 
 export function dataDir(): string {

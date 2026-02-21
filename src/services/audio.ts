@@ -14,6 +14,10 @@ import * as storage from "./storage.js";
 
 const log = pino({ name: "audio" });
 
+// In-memory locks to prevent concurrent operations on the same episode
+const mergeLocks = new Set<string>();
+const downloadLocks = new Set<string>();
+
 type ChapterTag = NonNullable<NodeID3.Tags["chapter"]>[number];
 
 type TocTag = NonNullable<NodeID3.Tags["tableOfContents"]>[number];
@@ -37,7 +41,103 @@ export async function buildEpisodeMp3(
 
   await mergeEpisodeMp3(podcastSlug, episodeId, config, onProgress);
 }
+
 export async function downloadEpisodeTracks(
+  podcastSlug: string,
+  episodeId: string,
+  onProgress?: (progress: BuildProgress) => void,
+): Promise<void> {
+  const key = `${podcastSlug}/${episodeId}`;
+  if (downloadLocks.has(key)) {
+    throw new Error("Download already in progress for this episode");
+  }
+  downloadLocks.add(key);
+
+  try {
+    await downloadEpisodeTracksInner(podcastSlug, episodeId, onProgress);
+  } finally {
+    downloadLocks.delete(key);
+  }
+}
+
+export function forceUnlock(podcastSlug: string, episodeId: string): void {
+  const key = `${podcastSlug}/${episodeId}`;
+  mergeLocks.delete(key);
+  downloadLocks.delete(key);
+}
+
+export async function getEpisodeFileSize(
+  podcastSlug: string,
+  episodeId: string,
+): Promise<null | number> {
+  try {
+    const mp3Path = storage.episodeMp3Path(podcastSlug, episodeId);
+    const stats = await stat(mp3Path);
+    return stats.size;
+  } catch {
+    return null;
+  }
+}
+export function isDownloadLocked(podcastSlug: string, episodeId: string): boolean {
+  return downloadLocks.has(`${podcastSlug}/${episodeId}`);
+}
+
+export function isMergeLocked(podcastSlug: string, episodeId: string): boolean {
+  return mergeLocks.has(`${podcastSlug}/${episodeId}`);
+}
+
+export async function mergeEpisodeMp3(
+  podcastSlug: string,
+  episodeId: string,
+  config: PodcastConfig,
+  onProgress?: (progress: BuildProgress) => void,
+): Promise<void> {
+  const key = `${podcastSlug}/${episodeId}`;
+  if (mergeLocks.has(key)) {
+    throw new Error("Merge already in progress for this episode");
+  }
+  mergeLocks.add(key);
+
+  try {
+    await mergeEpisodeMp3Inner(podcastSlug, episodeId, config, onProgress);
+  } finally {
+    mergeLocks.delete(key);
+  }
+}
+
+function buildChapterTags(tracks: TrackMeta[]): {
+  chapter: ChapterTag[];
+  tableOfContents: TocTag[];
+} {
+  let currentMs = 0;
+  const chapters: ChapterTag[] = [];
+  const elementIds: string[] = [];
+
+  for (const track of tracks) {
+    const elementID = `ch${String(track.position).padStart(2, "0")}`;
+    elementIds.push(elementID);
+    chapters.push({
+      elementID,
+      endTimeMs: currentMs + track.durationMs,
+      startTimeMs: currentMs,
+      tags: { title: track.title },
+    });
+    currentMs += track.durationMs;
+  }
+
+  return {
+    chapter: chapters,
+    tableOfContents: [
+      {
+        elementID: "toc1",
+        elements: elementIds,
+        isOrdered: true,
+      },
+    ],
+  };
+}
+
+async function downloadEpisodeTracksInner(
   podcastSlug: string,
   episodeId: string,
   onProgress?: (progress: BuildProgress) => void,
@@ -94,20 +194,7 @@ export async function downloadEpisodeTracks(
   log.info({ episodeId }, "Track downloads complete");
 }
 
-export async function getEpisodeFileSize(
-  podcastSlug: string,
-  episodeId: string,
-): Promise<null | number> {
-  try {
-    const mp3Path = storage.episodeMp3Path(podcastSlug, episodeId);
-    const stats = await stat(mp3Path);
-    return stats.size;
-  } catch {
-    return null;
-  }
-}
-
-export async function mergeEpisodeMp3(
+async function mergeEpisodeMp3Inner(
   podcastSlug: string,
   episodeId: string,
   config: PodcastConfig,
@@ -172,38 +259,6 @@ export async function mergeEpisodeMp3(
     await unlink(tmpPath).catch(() => {});
     throw err;
   }
-}
-
-function buildChapterTags(tracks: TrackMeta[]): {
-  chapter: ChapterTag[];
-  tableOfContents: TocTag[];
-} {
-  let currentMs = 0;
-  const chapters: ChapterTag[] = [];
-  const elementIds: string[] = [];
-
-  for (const track of tracks) {
-    const elementID = `ch${String(track.position).padStart(2, "0")}`;
-    elementIds.push(elementID);
-    chapters.push({
-      elementID,
-      endTimeMs: currentMs + track.durationMs,
-      startTimeMs: currentMs,
-      tags: { title: track.title },
-    });
-    currentMs += track.durationMs;
-  }
-
-  return {
-    chapter: chapters,
-    tableOfContents: [
-      {
-        elementID: "toc1",
-        elements: elementIds,
-        isOrdered: true,
-      },
-    ],
-  };
 }
 
 async function mergeTracksToEpisode(

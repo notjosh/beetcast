@@ -1,4 +1,6 @@
 import {
+  type ClearFilesResponse,
+  ClearFilesResponseSchema,
   type EpisodeDetail,
   EpisodeDetailSchema,
   type EpisodePatchRequest,
@@ -24,6 +26,7 @@ import {
   Music,
   Pencil,
   RefreshCw,
+  Trash2,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,6 +35,17 @@ import useSWR from "swr";
 import useSWRMutation from "swr/mutation";
 
 import { Layout } from "@/components/layout";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +85,11 @@ export function EpisodeDetail() {
     zodMutator<EpisodePatchResponse, EpisodePatchRequest>(EpisodePatchResponseSchema, "PATCH"),
   );
 
+  const { isMutating: clearing, trigger: triggerClear } = useSWRMutation(
+    `/api/admin/podcasts/${podcast}/episodes/${id}/files?target=all`,
+    zodMutator<ClearFilesResponse>(ClearFilesResponseSchema, "DELETE"),
+  );
+
   const downloadSSE = useSSEAction<BuildProgress, { message: string }>(
     `/api/admin/podcasts/${podcast}/episodes/${id}/download`,
     { error: BuildErrorSchema, progress: BuildProgressSchema, result: BuildResultSchema },
@@ -93,6 +112,11 @@ export function EpisodeDetail() {
 
   const handleMerge = async () => {
     await mergeSSE.execute();
+    await mutate();
+  };
+
+  const handleClear = async () => {
+    await triggerClear();
     await mutate();
   };
 
@@ -319,6 +343,31 @@ export function EpisodeDetail() {
                 <Merge className={`h-4 w-4 ${mergeSSE.running ? "animate-pulse" : ""}`} />
                 {mergeSSE.running ? "Merging..." : "Merge"}
               </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    disabled={isPending || clearing || downloadSSE.running || mergeSSE.running}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {clearing ? "Clearing..." : "Clear Files"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear episode files?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all downloaded tracks and the merged MP3 for this episode.
+                      You will need to re-download and re-merge to restore them.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleClear}>Clear Files</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </CardContent>
             {(downloadSSE.running ||
               downloadSSE.progress ||

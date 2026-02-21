@@ -7,7 +7,10 @@ import { getAllConfigs, getConfigBySlug } from "../config.js";
 import {
   buildEpisodeMp3,
   downloadEpisodeTracks,
+  forceUnlock,
   getEpisodeFileSize,
+  isDownloadLocked,
+  isMergeLocked,
   mergeEpisodeMp3,
 } from "../services/audio.js";
 import {
@@ -349,6 +352,55 @@ app.patch("/podcasts/:podcast/episodes/:id", async (c) => {
   }
 
   return c.json({ message: "Episode updated" });
+});
+
+// DELETE /api/admin/podcasts/:podcast/episodes/:id/files — clear episode files
+app.delete("/podcasts/:podcast/episodes/:id/files", async (c) => {
+  const slug = c.req.param("podcast");
+  const id = c.req.param("id");
+  const config = getConfigBySlug(slug);
+  if (!config) return c.notFound();
+
+  const target = c.req.query("target") ?? "all";
+  if (target !== "tracks" && target !== "merged" && target !== "all") {
+    return c.json({ message: "Invalid target — must be tracks, merged, or all" }, 400);
+  }
+
+  const force = c.req.query("force") === "true";
+
+  if (force) {
+    forceUnlock(slug, id);
+  } else if (isMergeLocked(slug, id) || isDownloadLocked(slug, id)) {
+    return c.json({ message: "Operation in progress for this episode" }, 409);
+  }
+
+  let tracksDeleted = 0;
+  let mergedDeleted = false;
+
+  if (target === "tracks" || target === "all") {
+    tracksDeleted = await storage.clearTrackFiles(slug, id);
+  }
+
+  if (target === "merged" || target === "all") {
+    mergedDeleted = await storage.clearMergedMp3(slug, id);
+    if (mergedDeleted) {
+      const meta = await storage.readEpisodeMeta(slug, id);
+      if (meta) {
+        meta.merged = false;
+        await storage.writeEpisodeMeta(slug, id, meta);
+      }
+      const index = await storage.readEpisodeIndex(slug);
+      if (index) {
+        const entry = index.episodes.find((e) => e.id === id);
+        if (entry) {
+          entry.merged = false;
+          await storage.writeEpisodeIndex(slug, index);
+        }
+      }
+    }
+  }
+
+  return c.json({ mergedDeleted, message: "Files cleared", tracksDeleted });
 });
 
 // POST /api/admin/podcasts/:podcast/episodes/:id/download — download missing tracks (SSE stream)
