@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { DURATION_PATTERN } from "../lib/duration.js";
+
 export const PodcastConfigSchema = z.object({
   author: z.string(),
   bandcampUrl: z.url(),
@@ -9,6 +11,10 @@ export const PodcastConfigSchema = z.object({
   description: z.string().optional(),
   explicit: z.boolean().default(false),
   language: z.string().default("en"),
+  refreshInterval: z
+    .string()
+    .regex(DURATION_PATTERN, 'Expected a duration like "30m", "12h", or "1d"')
+    .default("24h"),
   subcategory: z.string().optional(),
   title: z.string(),
 });

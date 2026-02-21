@@ -91,22 +91,6 @@ app.on(["GET", "HEAD"], "/feed.xml", async (c) => {
   const config = c.get("podcastConfig");
   const baseUrl = process.env.BASE_URL ?? "http://localhost:3000";
 
-  // Check if we need to refresh
-  const index = await storage.readEpisodeIndex(slug);
-  const oneHourAgo = Date.now() - 60 * 60 * 1000;
-  const needsRefresh = !index || new Date(index.lastUpdated).getTime() < oneHourAgo;
-
-  if (needsRefresh) {
-    log.info({ slug }, "Refreshing discography for feed");
-    try {
-      await discoverEpisodes(slug, config);
-      await syncUnsyncedEpisodes(slug);
-    } catch (err) {
-      log.error({ err, slug }, "Failed to refresh discography");
-      // Continue with existing data if available
-    }
-  }
-
   // Use index file mtime for caching headers
   let lastModified: string | undefined;
   let etagValue: string | undefined;

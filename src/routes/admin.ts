@@ -13,6 +13,7 @@ import {
 } from "../services/audio.js";
 import { discoverEpisodes, syncSingleEpisode, syncUnsyncedEpisodes } from "../services/bandcamp.js";
 import { operationQueue } from "../services/operation-queue.js";
+import { resetScheduler } from "../services/scheduler.js";
 import * as storage from "../services/storage.js";
 
 const app = new Hono();
@@ -241,6 +242,7 @@ app.post("/podcasts/:podcast/discover", (c) => {
     },
   );
 
+  resetScheduler(slug);
   return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 
@@ -262,6 +264,7 @@ app.post("/podcasts/:podcast/sync", (c) => {
     },
   );
 
+  resetScheduler(slug);
   return c.json({ status: operationQueue.getTask(taskId)?.status ?? "queued", taskId });
 });
 

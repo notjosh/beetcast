@@ -33,6 +33,23 @@ Edit `podcasts.json` to add or modify podcast sources:
 
 The key (e.g. `omsbpodcast`) becomes the URL slug for the podcast feed.
 
+### Scheduled Refresh
+
+Beetcast automatically discovers and syncs new episodes on a schedule. Configure the interval per-podcast with `refreshInterval` (default: `"24h"`):
+
+```json
+{
+  "omsbpodcast": {
+    "bandcampUrl": "https://omsbpodcast.bandcamp.com",
+    "title": "(((OPENmind/SATURATEDbrain)))",
+    "author": "OPENmind/SATURATEDbrain",
+    "refreshInterval": "12h"
+  }
+}
+```
+
+Supported units: `m` (minutes), `h` (hours), `d` (days). Manual discover/sync from the admin UI resets the timer.
+
 ## Usage
 
 ### Feed URL

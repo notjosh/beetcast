@@ -8,6 +8,7 @@ import pino from "pino";
 import { adminRoutes } from "./routes/admin.js";
 import { operationsRoutes } from "./routes/operations.js";
 import { podcastRoutes } from "./routes/podcast.js";
+import { startScheduler } from "./services/scheduler.js";
 
 const log = pino({ name: "server" });
 
@@ -66,4 +67,5 @@ log.info({ adminEnabled, baseUrl, port }, "Starting server");
 
 serve({ fetch: app.fetch, port }, (info) => {
   log.info(`Server listening on http://localhost:${info.port}`);
+  startScheduler();
 });
