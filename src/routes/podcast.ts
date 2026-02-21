@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { compress } from "hono/compress";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import pino from "pino";
 
 import type { PodcastConfig } from "../schemas/config.js";
@@ -78,7 +78,7 @@ function streamFile(
 }
 
 // GET|HEAD /feed.xml
-app.on(["GET", "HEAD"], "/feed.xml", compress({ encoding: "gzip" }), async (c) => {
+app.on(["GET", "HEAD"], "/feed.xml", async (c) => {
   const slug = c.get("podcastSlug");
   const config = c.get("podcastConfig");
   const baseUrl = process.env["BASE_URL"] ?? "http://localhost:3000";
@@ -128,20 +128,29 @@ app.on(["GET", "HEAD"], "/feed.xml", compress({ encoding: "gzip" }), async (c) =
     }
   }
 
-  const cacheHeaders: Record<string, string> = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/rss+xml; charset=utf-8",
   };
-  if (etagValue) cacheHeaders["ETag"] = etagValue;
-  if (lastModified) cacheHeaders["Last-Modified"] = lastModified;
+  if (etagValue) headers["ETag"] = etagValue;
+  if (lastModified) headers["Last-Modified"] = lastModified;
 
   if (c.req.method === "HEAD") {
-    return c.body(null, 200, cacheHeaders);
+    return c.body(null, 200, headers);
   }
 
   const episodes = await storage.getAllEpisodeMetas(slug);
   const xml = await generateFeed(slug, config, episodes, baseUrl);
 
-  return c.body(xml, 200, cacheHeaders);
+  const acceptEncoding = c.req.header("Accept-Encoding") ?? "";
+  if (acceptEncoding.includes("gzip")) {
+    const compressed = gzipSync(xml);
+    headers["Content-Encoding"] = "gzip";
+    headers["Content-Length"] = compressed.byteLength.toString();
+    return c.body(compressed, 200, headers);
+  }
+
+  headers["Content-Length"] = Buffer.byteLength(xml, "utf-8").toString();
+  return c.body(xml, 200, headers);
 });
 
 // GET|HEAD /artwork.jpg — podcast-level artwork

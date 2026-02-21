@@ -9,8 +9,8 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 FROM base AS build
-ARG GIT_HASH=dev
-ENV GIT_HASH=$GIT_HASH
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+COPY .git ./.git
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json vite.config.ts ./

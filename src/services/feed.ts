@@ -84,7 +84,21 @@ export async function generateFeed(
 }
 
 function buildDescription(ep: EpisodeMeta): string {
-  const body = textToHtml(ep.description ?? ep.cleanTitle);
+  let body: string;
+  if (ep.description) {
+    body = textToHtml(ep.description);
+  } else {
+    // Build a fallback description from available metadata
+    const parts: string[] = [ep.cleanTitle];
+    if (ep.credits) parts.push(ep.credits);
+    if (ep.tracks.length > 0) {
+      parts.push("Tracklist:");
+      for (const t of ep.tracks) {
+        parts.push(`${t.position}. ${t.title}`);
+      }
+    }
+    body = textToHtml(parts.join("\n"));
+  }
   return `${body}<br>\n<hr>\nOriginal: <a href="${ep.bandcampUrl}">${ep.bandcampUrl}</a>`;
 }
 
