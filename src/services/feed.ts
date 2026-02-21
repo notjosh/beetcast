@@ -17,6 +17,16 @@ export async function generateFeed(
 
   const feed = new Podcast({
     author: config.author,
+    customElements: [
+      { "podcast:locked": "no" },
+      { "podcast:guid": podcastSlug },
+      {
+        "podcast:funding": {
+          _attr: { url: config.bandcampUrl },
+          _cdata: `Support ${config.title}`,
+        },
+      },
+    ],
     description: config.description ?? config.title,
     feedUrl,
     imageUrl,
