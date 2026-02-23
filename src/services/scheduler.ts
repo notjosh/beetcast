@@ -35,16 +35,18 @@ function runRefresh(slug: string): void {
   log.info({ slug }, "Scheduled refresh starting");
   operationQueue.submit("discover", { podcastSlug: slug, podcastTitle: config.title }, async () => {
     await discoverEpisodes(slug, config);
+
+    // Sync after discovery so newly discovered episodes get metadata fetched
+    operationQueue.submit(
+      "sync",
+      { podcastSlug: slug, podcastTitle: config.title },
+      async (onProgress) => {
+        await syncUnsyncedEpisodes(slug, (progress) => {
+          onProgress(Object.fromEntries(Object.entries(progress)));
+        });
+      },
+    );
   });
-  operationQueue.submit(
-    "sync",
-    { podcastSlug: slug, podcastTitle: config.title },
-    async (onProgress) => {
-      await syncUnsyncedEpisodes(slug, (progress) => {
-        onProgress(Object.fromEntries(Object.entries(progress)));
-      });
-    },
-  );
 }
 
 function scheduleRefresh(slug: string): void {

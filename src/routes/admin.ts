@@ -91,6 +91,13 @@ app.get("/podcasts/:podcast", async (c) => {
     });
   }
 
+  // Sort newest-first; episodes without a releaseDate sink to the bottom
+  episodes.sort((a, b) => {
+    const dateA = a.releaseDate ? new Date(a.releaseDate).getTime() : 0;
+    const dateB = b.releaseDate ? new Date(b.releaseDate).getTime() : 0;
+    return dateB - dateA;
+  });
+
   return c.json({
     episodes,
     podcast: {

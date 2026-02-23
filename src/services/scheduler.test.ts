@@ -47,6 +47,27 @@ describe("scheduler", () => {
       expect.objectContaining({ podcastSlug: "test-pod" }),
       expect.any(Function),
     );
+    // sync is now submitted from inside the discover callback, not at top level
+    expect(mockSubmit).not.toHaveBeenCalledWith("sync", expect.anything(), expect.anything());
+  });
+
+  it("submits sync after discover callback completes", async () => {
+    let discoverFn: (() => Promise<void>) | undefined;
+
+    // Capture the discover callback so we can invoke it
+    mockSubmit.mockImplementation((type: string, _ctx: unknown, fn: () => Promise<void>) => {
+      if (type === "discover") {
+        discoverFn = fn;
+      }
+      return "task-id";
+    });
+
+    startScheduler();
+    expect(discoverFn).toBeDefined();
+
+    mockSubmit.mockReset();
+    await discoverFn?.();
+
     expect(mockSubmit).toHaveBeenCalledWith(
       "sync",
       expect.objectContaining({ podcastSlug: "test-pod" }),
@@ -63,11 +84,6 @@ describe("scheduler", () => {
 
     expect(mockSubmit).toHaveBeenCalledWith(
       "discover",
-      expect.objectContaining({ podcastSlug: "test-pod" }),
-      expect.any(Function),
-    );
-    expect(mockSubmit).toHaveBeenCalledWith(
-      "sync",
       expect.objectContaining({ podcastSlug: "test-pod" }),
       expect.any(Function),
     );
