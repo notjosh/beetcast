@@ -7,9 +7,10 @@ import pino from "pino";
 import type { PodcastConfig } from "../schemas/config.js";
 
 import { getConfigBySlug } from "../config.js";
-import { buildEpisodeMp3 } from "../services/audio.js";
+import { buildEpisodeMp3, downloadEpisodeTracks, mergeEpisodeMp3 } from "../services/audio.js";
 import { discoverEpisodes, syncUnsyncedEpisodes } from "../services/bandcamp.js";
 import { buildChaptersJson, generateFeed } from "../services/feed.js";
+import { operationQueue } from "../services/operation-queue.js";
 import * as storage from "../services/storage.js";
 
 const log = pino({ name: "routes:podcast" });
@@ -224,11 +225,37 @@ app.on(["GET", "HEAD"], "/episode/:id", async (c) => {
 
     const config = c.get("podcastConfig");
 
-    // Build if needed
+    // Download + merge if needed, each as a visible queued operation
     const exists = await storage.hasMergedMp3(slug, episodeId);
     if (!exists) {
-      log.info({ episodeId }, "Building episode MP3 on demand");
-      await buildEpisodeMp3(slug, episodeId, config);
+      log.info({ episodeId }, "Building episode MP3 on demand via queue");
+      const index = await storage.readEpisodeIndex(slug);
+      const entry = index?.episodes.find((e) => e.id === episodeId);
+      const taskCtx = {
+        episodeId,
+        episodeTitle: entry?.title,
+        podcastSlug: slug,
+        podcastTitle: config.title,
+      };
+
+      await operationQueue.submitAndWait("download", taskCtx, async (onProgress) => {
+        try {
+          await downloadEpisodeTracks(slug, episodeId, (progress) => {
+            onProgress(Object.fromEntries(Object.entries(progress)));
+          });
+        } catch (err) {
+          if (err instanceof Error && err.message === "All tracks already downloaded") {
+            return; // no-op, proceed to merge
+          }
+          throw err;
+        }
+      });
+
+      await operationQueue.submitAndWait("merge", taskCtx, async (onProgress) => {
+        await mergeEpisodeMp3(slug, episodeId, config, (progress) => {
+          onProgress(Object.fromEntries(Object.entries(progress)));
+        });
+      });
     }
 
     const mp3Path = storage.episodeMp3Path(slug, episodeId);

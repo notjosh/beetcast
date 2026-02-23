@@ -114,6 +114,42 @@ export class OperationQueue {
     return id;
   }
 
+  /**
+   * Submit a task and wait for it to complete.
+   * Rejects if the task fails.
+   */
+  submitAndWait(type: TaskType, context: TaskContext, executeFn: ExecuteFn): Promise<string> {
+    const taskId = this.submit(type, context, executeFn);
+    return new Promise((resolve, reject) => {
+      const onCompleted = (snapshot: TaskSnapshot) => {
+        if (snapshot.id !== taskId) {return;}
+        this.off("task-completed", onCompleted);
+        this.off("task-failed", onFailed);
+        resolve(taskId);
+      };
+      const onFailed = (snapshot: TaskSnapshot) => {
+        if (snapshot.id !== taskId) {return;}
+        this.off("task-completed", onCompleted);
+        this.off("task-failed", onFailed);
+        reject(new Error(snapshot.error ?? "Task failed"));
+      };
+
+      // Check if already done (e.g. dedup returned a task that finished)
+      const current = this.tasks.get(taskId);
+      if (current?.status === "completed") {
+        resolve(taskId);
+        return;
+      }
+      if (current?.status === "failed") {
+        reject(new Error(current.error ?? "Task failed"));
+        return;
+      }
+
+      this.on("task-completed", onCompleted);
+      this.on("task-failed", onFailed);
+    });
+  }
+
   private countByStatus(type: TaskType, status: TaskStatus): number {
     let count = 0;
     for (const task of this.tasks.values()) {
